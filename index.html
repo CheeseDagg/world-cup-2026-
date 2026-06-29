@@ -245,7 +245,11 @@
       knockout games also trend lower-scoring than the group stage these totals were built on, so Overs are if anything
       generous. Independent Poisson slightly <b>under-counts draws and 1-1/0-0</b>, so the draw and BTTS-no fair prices
       are mildly conservative. The 1X2 line is 90 minutes; the separate <b>to-advance</b> line adds extra time and
-      penalties (below).
+      penalties (below). For <b>lopsided mismatches</b> (a top seed vs a minnow), the Elo gap can demand a bigger winning
+      margin than the modelled goal total naturally supports; the model floors each side's goal rate at a small positive
+      value so the distribution stays valid (no impossible &gt;100% or negative prices). That nudges the modelled
+      <i>total</i> for those blowouts slightly upward — harmless for the win and advance numbers, and directionally
+      reasonable, since heavy favourites tend to run up the score.
 
       <h3>To advance — extra time &amp; penalties</h3>
       A knockout that's level after 90 goes to <b>30 minutes of extra time</b>, then a <b>shootout</b>. So advancing
@@ -282,7 +286,11 @@
       book's outrights and the gap is the futures edge. Two honest caveats: the four top seeds (Argentina, Spain, France,
       England) sit in four separate quarters, so the model's love of Elo gaps <b>concentrates probability on them</b>
       more than the market will — favourites read short here, longshots long. And six rounds of a neutral-site,
-      no-injuries model compound, so deep-run numbers are a lens, not a lock.
+      no-injuries model compound, so deep-run numbers are a lens, not a lock. Two tools sit on this tab: <b>click any
+      column header</b> to rank the field by that round (useful for "to reach the final" or "to make the semis" markets),
+      and the <b>Outright value</b> panel turns the sim into a bet — pick a team and a futures market, enter your book's
+      price, and read EV plus the Kelly stake straight off the simulated probability. The run is cached, so the numbers
+      hold still as you move between tabs; hit <b>re-run</b> to redraw.
 
       <h3>Defence &amp; possession columns</h3>
       <b>GA/90</b> (goals allowed per 90) and <b>Poss%</b> come straight from FBref's squad
@@ -400,7 +408,7 @@ const L_AVG=1.404, MU_LO=2.0, MU_HI=3.7;         // league goals/team-game; sane
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 function poisP(k,l){ let p=Math.exp(-l); for(let i=1;i<=k;i++)p*=l/i; return p; }
 const weElo=(ea,eb)=>1/(Math.pow(10,-(ea-eb)/400)+1);   // neutral-site result expectancy
-function resExp(s,mu,K=11){ const la=(mu+s)/2, lb=Math.max((mu-s)/2,0.02); let ph=0,pd=0;
+function resExp(s,mu,K=11){ const la=Math.max((mu+s)/2,0.02), lb=Math.max((mu-s)/2,0.02); let ph=0,pd=0;
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){const p=poisP(i,la)*poisP(j,lb); if(i>j)ph+=p; else if(i===j)pd+=p;}
   return ph+0.5*pd; }
 function solveS(we,mu){ let lo=-5,hi=5; for(let n=0;n<46;n++){const m=(lo+hi)/2; if(resExp(m,mu)<we)lo=m; else hi=m;} return (lo+hi)/2; }
@@ -408,7 +416,7 @@ function modelMatch(h,a,eloAdj=0){
   const th=T[h], ta=T[a];
   const mu=clamp(L_AVG*th.att*ta.def + L_AVG*ta.att*th.def, MU_LO, MU_HI);  // total from attack/defense
   const s=solveS(weElo(th.elo+eloAdj,ta.elo), mu);                          // supremacy from Elo (+home adj)
-  const la=(mu+s)/2, lb=(mu-s)/2, K=11, M=[];
+  const la=Math.max((mu+s)/2,0.02), lb=Math.max((mu-s)/2,0.02), K=11, M=[];   // floor BOTH goal rates exactly as the solver does — a huge Elo gap (either direction) can drive one rate negative; without the floor the Poisson grid breaks (probabilities outside [0,1])
   for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++)M[i][j]=poisP(i,la)*poisP(j,lb);}
   let ph=0,pd=0,over=0,btts=0;
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){const p=M[i][j];
@@ -433,6 +441,14 @@ function priceRow(k,label,p,feedPct){
   </tr>`;
 }
 
+// R16 opponent each winner inherits, from the verified bracket (Canada & Brazil already through)
+const R16_NEXT={
+  'GER-PAR':'France / Sweden','FRA-SWE':'Germany / Paraguay',
+  'NED-MAR':'Canada — already through','CIV-NOR':'Brazil — already through',
+  'MEX-ECU':'England / DR Congo','ENG-COD':'Mexico / Ecuador',
+  'BEL-SEN':'USA / Bosnia','USA-BIH':'Belgium / Senegal',
+  'ESP-AUT':'Portugal / Croatia','POR-CRO':'Spain / Austria'
+};
 function matchCard(m,i){
   const md=modelMatch(m.h,m.a), ph=md.ph,pd=md.pd,pa=md.pa;
   const feed={h:m.ph,d:m.pd,a:m.pa};
@@ -453,6 +469,7 @@ function matchCard(m,i){
       <div class="barlbl"><span>${m.h} win</span><span>draw</span><span>${m.a} win</span></div>
     </div>
     <div class="msub">our Elo model · expected goals <b>${md.la.toFixed(2)}</b>–<b>${md.lb.toFixed(2)}</b> · total <b>${md.mu.toFixed(2)}</b></div>
+    ${R16_NEXT[m.h+'-'+m.a]?`<div class="msub" style="color:var(--mut2)">R16 path · winner meets <b>${R16_NEXT[m.h+'-'+m.a]}</b></div>`:''}
     <table class="odds">
       <thead><tr><th>Result</th><th>Elo</th><th class="feedc">Feed</th><th>Fair</th><th>Your price</th><th>EV</th></tr></thead>
       <tbody>
@@ -487,7 +504,12 @@ function matchCard(m,i){
 }
 
 function renderMatches(){
-  document.getElementById('matches').innerHTML = `<div class="grid">${DATA.matches.map(matchCard).join('')}</div>`;
+  document.getElementById('matches').innerHTML =
+    `<div class="grid">${DATA.matches.map(matchCard).join('')}</div>
+     <p class="note" style="margin-top:14px;max-width:760px">These are the Round-of-32 ties with a feed line to price against.
+     The other ties — Argentina–Cabo Verde, Colombia–Ghana, Switzerland–Algeria, Australia–Egypt (and the completed
+     South Africa–Canada and Brazil–Japan) — aren't shown here, but you can run our model on any of them in the
+     <b>Matchup Lab</b>, and all 16 feed the <b>Title Odds</b> simulation.</p>`;
   document.querySelectorAll('.match').forEach(wireCard);
 }
 
@@ -751,22 +773,28 @@ let parlayLegs=[{mi:0,market:'1x2',side:'h',price:''},{mi:1,market:'1x2',side:'h
 let parlayBoost='', parlayOvr='';
 const MK={'1x2':'Match result','ou':'O/U 2.5','btts':'BTTS'};
 const amer=d=> d>=2 ? '+'+Math.round((d-1)*100) : ''+Math.round(-100/(d-1));
+// all 14 upcoming R32 ties — parlay legs price off the model, so no feed line is needed
+const PARLAY_TIES=[
+  {h:'GER',a:'PAR'},{h:'NED',a:'MAR'},{h:'CIV',a:'NOR'},{h:'FRA',a:'SWE'},{h:'MEX',a:'ECU'},
+  {h:'ENG',a:'COD'},{h:'BEL',a:'SEN'},{h:'USA',a:'BIH'},{h:'ESP',a:'AUT'},{h:'POR',a:'CRO'},
+  {h:'SUI',a:'DZA'},{h:'ARG',a:'CPV'},{h:'COL',a:'GHA'},{h:'AUS',a:'EGY'}
+];
 function sidesFor(market){
   if(market==='ou')return [['over','Over 2.5'],['under','Under 2.5']];
   if(market==='btts')return [['by','BTTS Yes'],['bn','BTTS No']];
   return [['h','home'],['d','Draw'],['a','away']];
 }
 function sideLabel(l){
-  const m=DATA.matches[l.mi];
+  const m=PARLAY_TIES[l.mi];
   if(l.market==='1x2')return l.side==='h'?m.h+' win':l.side==='a'?m.a+' win':'Draw';
   if(l.market==='ou')return l.side==='over'?'Over 2.5':'Under 2.5';
   if(l.market==='btts')return l.side==='by'?'BTTS Yes':'BTTS No';
   return l.label||'manual';
 }
-function legLabel(l){ return l.market==='manual'?(l.label||'manual leg'):`${DATA.matches[l.mi].h}–${DATA.matches[l.mi].a} · ${sideLabel(l)}`; }
+function legLabel(l){ return l.market==='manual'?(l.label||'manual leg'):`${PARLAY_TIES[l.mi].h}–${PARLAY_TIES[l.mi].a} · ${sideLabel(l)}`; }
 function legMarginal(l){
   if(l.market==='manual'){ const p=parseFloat(l.prob); return isNaN(p)?null:p/100; }
-  const m=DATA.matches[l.mi]; if(!m)return null; const md=modelMatch(m.h,m.a);
+  const m=PARLAY_TIES[l.mi]; if(!m)return null; const md=modelMatch(m.h,m.a);
   return {h:md.ph,d:md.pd,a:md.pa,over:md.over,under:md.under,by:md.btts,bn:md.nobtts}[l.side];
 }
 function legSat(market,side,i,j){
@@ -780,7 +808,7 @@ function parlayProbs(legs){
   legs.forEach(l=>{ if(l.market==='manual')manual.push(l); else (groups[l.mi]=groups[l.mi]||[]).push(l); });
   let pCorr=1,pNaive=1,valid=true;
   Object.keys(groups).forEach(mi=>{
-    const gl=groups[mi], m=DATA.matches[mi], md=modelMatch(m.h,m.a), G=poissonGrid(md.la,md.lb);
+    const gl=groups[mi], m=PARLAY_TIES[mi], md=modelMatch(m.h,m.a), G=poissonGrid(md.la,md.lb);
     let joint=0; for(let i=0;i<11;i++)for(let j=0;j<11;j++){ if(gl.every(l=>legSat(l.market,l.side,i,j)))joint+=G[i][j]; }
     pCorr*=joint;
     gl.forEach(l=>{ const mp=legMarginal(l); if(mp==null)valid=false; else pNaive*=mp; });
@@ -797,7 +825,7 @@ function legRow(l,idx){
       <input class="leg-price lp" inputmode="numeric" placeholder="price" value="${l.price||''}">
       <span class="x" title="remove">✕</span></div>`;
   }
-  const matchOpts=DATA.matches.map((mm,i)=>`<option value="${i}" ${i===l.mi?'selected':''}>${mm.h}–${mm.a}</option>`).join('');
+  const matchOpts=PARLAY_TIES.map((mm,i)=>`<option value="${i}" ${i===l.mi?'selected':''}>${mm.h}–${mm.a}</option>`).join('');
   const mktOpts=['1x2','ou','btts'].map(k=>`<option value="${k}" ${k===l.market?'selected':''}>${MK[k]}</option>`).join('');
   const sideOpts=sidesFor(l.market).map(([k])=>`<option value="${k}" ${k===l.side?'selected':''}>${sideLabel({...l,side:k})}</option>`).join('');
   const mp=legMarginal(l);
@@ -821,8 +849,9 @@ function readLeg(row,idx){
 function renderParlay(){
   const sec=document.getElementById('parlay');
   let h=`<div class="panel"><h2>Parlay & boost calculator</h2>
-    <p class="note">Stack legs from the model (or add manual legs), enter the price your book gives each, and read the
-    true combined edge. Same-match legs are priced with <b>correlation</b> from the Poisson grid — not naive
+    <p class="note">Stack legs from the model — the match dropdown covers all 14 upcoming Round-of-32 ties, not just the
+    ones with a feed line — or add manual legs, enter the price your book gives each, and read the true combined edge.
+    Same-match legs are priced with <b>correlation</b> from the Poisson grid — not naive
     multiplication — which is where same-game value hides. Add a <b>profit boost</b> to see exactly when it flips a
     ticket +EV. Per-leg vig shows up as negative leg edge, and it compounds across the ticket.</p>
     <div id="legs">${parlayLegs.map(legRow).join('')}</div>
@@ -979,11 +1008,40 @@ function runMonteCarlo(N){
     .sort((a,b)=>b.champ-a.champ);
 }
 const MC_N=20000;
-function renderBracket(){
-  const sec=document.getElementById('bracket');
-  const rows=runMonteCarlo(MC_N);
+let _bracketRows=null;
+let _bSort={k:'champ',dir:-1};
+const MKT_LBL={champ:'Champion',fin:'Reach final',sf:'Reach semis',qf:'Reach quarters',r16:'Reach R16'};
+function paintBTable(rows){
   const pc=x=>x>=0.995?'>99%':x<0.005?'<1%':(x*100).toFixed(0)+'%';
-  let h=`<div class="panel"><h2>Title &amp; advancement odds</h2>
+  const k=_bSort.k, dir=_bSort.dir;
+  const sorted=[...rows].sort((a,b)=>{
+    if(k==='ab'){ const an=T[a.ab].name, bn=T[b.ab].name; return an<bn?-dir:an>bn?dir:0; }
+    return (a[k]-b[k])*dir; });
+  const cols=[['ab','Team'],['r16','R16'],['qf','QF'],['sf','Semi'],['fin','Final'],['champ','Champion']];
+  let h=`<table class="ctable"><thead><tr>`+
+    cols.map(c=>`<th data-k="${c[0]}" class="${c[0]===k?'on':''}" style="cursor:pointer">${c[1]}</th>`).join('')+
+    `<th>champ fair</th></tr></thead><tbody>`;
+  sorted.forEach(r=>{
+    const lk=(r.ab==='CAN'||r.ab==='BRA');
+    h+=`<tr>
+      <td><span class="abbr" style="width:auto;margin-right:7px">${r.ab}</span>${T[r.ab].name}${lk?' <span style="color:var(--pos);font-size:10px">✓ R16</span>':''}</td>
+      <td style="color:var(--mut)">${pc(r.r16)}</td><td style="color:var(--mut)">${pc(r.qf)}</td>
+      <td>${pc(r.sf)}</td><td>${pc(r.fin)}</td>
+      <td class="num" style="font-weight:800;color:${r.champ>=0.08?'var(--gold)':'var(--ink)'}">${pc(r.champ)}</td>
+      <td class="num" style="color:var(--mut)">${r.champ>=0.005?fairAm(r.champ):'—'}</td></tr>`;
+  });
+  h+=`</tbody></table>`;
+  const c=document.getElementById('btable'); c.innerHTML=h;
+  c.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+    const kk=th.dataset.k;
+    if(_bSort.k===kk)_bSort.dir*=-1; else {_bSort.k=kk; _bSort.dir=(kk==='ab')?1:-1;}
+    paintBTable(rows);
+  });
+}
+function paintBracket(rows){
+  const sec=document.getElementById('bracket');
+  const byChamp=[...rows].sort((a,b)=>b.champ-a.champ);
+  sec.innerHTML=`<div class="panel"><h2>Title &amp; advancement odds</h2>
     <p class="note">A Monte Carlo over the real, locked knockout bracket — ${MC_N.toLocaleString()} simulated tournaments.
     Each tie is decided by our model's <b>to-advance</b> probability (90' + extra time + a 50/50 shootout), round by round
     to the final at MetLife. <b>Canada</b> and <b>Brazil</b> are already through (R32 winners) and locked in; the other 14
@@ -996,23 +1054,42 @@ function renderBracket(){
     prices here to read <i>shorter</i> than your book and longshots <i>longer</i>. Treat the gaps as hypotheses to check
     against the market, not edges to hammer. Re-running reshuffles the random draws slightly.</div>
     <div class="btnrow"><button class="btn" id="rerun">↻ re-run simulation</button>
-      <span class="note" style="align-self:center">${MC_N.toLocaleString()} sims · neutral site · incl. ET &amp; pens</span></div>
-    <table class="ctable" style="margin-top:12px"><thead><tr>
-      <th>Team</th><th>R16</th><th>QF</th><th>Semi</th><th>Final</th><th>Champion</th><th>champ fair</th></tr></thead><tbody>`;
-  rows.forEach((r,i)=>{
-    const lk = (r.ab==='CAN'||r.ab==='BRA');
-    h+=`<tr>
-      <td><span class="abbr" style="width:auto;margin-right:7px">${r.ab}</span>${T[r.ab].name}${lk?' <span style="color:var(--pos);font-size:10px">✓ R16</span>':''}</td>
-      <td style="color:var(--mut)">${pc(r.r16)}</td><td style="color:var(--mut)">${pc(r.qf)}</td>
-      <td>${pc(r.sf)}</td><td>${pc(r.fin)}</td>
-      <td class="num" style="font-weight:800;color:${r.champ>=0.08?'var(--gold)':'var(--ink)'}">${pc(r.champ)}</td>
-      <td class="num" style="color:var(--mut)">${r.champ>=0.005?fairAm(r.champ):'—'}</td></tr>`;
-  });
-  h+=`</tbody></table>
+      <span class="note" style="align-self:center">${MC_N.toLocaleString()} sims · neutral site · incl. ET &amp; pens · click a header to sort</span></div>
+    <div id="btable" style="margin-top:12px"></div>
     <p class="note">Champion column sums to 100% across the field; "Final" sums to 200% (two finalists). Fair price is the
-    no-vig outright implied by the model — books bake margin on top, so their number will be shorter.</p></div>`;
-  sec.innerHTML=h;
-  sec.querySelector('#rerun').onclick=renderBracket;
+    no-vig outright implied by the model — books bake margin on top, so their number will be shorter.</p></div>
+    <div class="panel"><h2>Outright value — EV &amp; Kelly</h2>
+    <p class="note">Pick a team and a futures market (model probability auto-fills from the simulation above), enter your
+    book's price, and get EV plus the Kelly stake. This is where the bracket sim becomes a bet — but mind the caveat
+    above: the model runs favourites short, so the cleaner edges here are usually <i>longshots</i> it rates higher than
+    the board, not backing the chalk.</p>
+    <div class="leg" style="border:none">
+      <select id="oTeam">${byChamp.map(r=>`<option value="${r.ab}">${T[r.ab].name}</option>`).join('')}</select>
+      <select id="oMkt">${Object.entries(MKT_LBL).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select>
+      <input id="oPrice" class="lp" inputmode="numeric" placeholder="price" style="width:74px">
+      <span id="oOut" class="note" style="margin-left:4px"></span>
+    </div></div>`;
+  paintBTable(rows);
+  sec.querySelector('#rerun').onclick=()=>{ _bracketRows=null; renderBracket(); };
+  const oTeam=document.getElementById('oTeam'), oMkt=document.getElementById('oMkt'), oPrice=document.getElementById('oPrice'), oOut=document.getElementById('oOut');
+  const oCalc=()=>{
+    const r=rows.find(x=>x.ab===oTeam.value), p=r?r[oMkt.value]:0;
+    const raw=(oPrice.value||'').trim().replace('+','');
+    if(raw===''||isNaN(parseFloat(raw))){ oOut.innerHTML = p>0?`model <b>${(p*100).toFixed(1)}%</b> · fair ${fairAm(p)}`:`<span style="color:var(--mut2)">model 0%</span>`; return; }
+    if(p<=0){ oOut.innerHTML=`<span style="color:var(--mut2)">model says 0% — pass</span>`; return; }
+    const d=amToDec(parseFloat(raw)), ev=(p*d-1)*100, f=(p*d-1)/(d-1);
+    oOut.innerHTML = f<=0
+      ? `model ${(p*100).toFixed(1)}% · EV <b style="color:var(--neg)">${ev.toFixed(1)}%</b> · <span style="color:var(--mut2)">no edge</span>`
+      : `model ${(p*100).toFixed(1)}% · EV <b style="color:var(--pos)">+${ev.toFixed(1)}%</b> · half-Kelly <b>${(f*50).toFixed(1)}%</b> · full <b>${(f*100).toFixed(1)}%</b>`;
+  };
+  oTeam.onchange=oCalc; oMkt.onchange=oCalc; oPrice.oninput=oCalc; oCalc();
+}
+function renderBracket(){
+  if(_bracketRows){ paintBracket(_bracketRows); return; }   // cached: repaint instantly, stable numbers
+  const sec=document.getElementById('bracket');
+  sec.innerHTML=`<div class="panel"><h2>Title &amp; advancement odds</h2>
+    <div class="empty" style="padding:32px 0">Running ${MC_N.toLocaleString()} simulations over the bracket…</div></div>`;
+  setTimeout(()=>{ _bracketRows=runMonteCarlo(MC_N); paintBracket(_bracketRows); }, 30);  // defer so the loading state paints
 }
 
 /* ---------- tabs ---------- */
