@@ -315,6 +315,23 @@
       <b>Scoreboard</b> tab reads the same feed to show each day's games — live scores with the minute,
       finals with who advanced, and upcoming kickoffs with our model's pick to advance.
 
+      <h3>Live-updating model</h3>
+      The model doesn't just record results — it <b>learns from them</b>. Each team's Power rating is its
+      World Football Elo, and after every completed knockout game both teams' ratings shift by the
+      <b>standard Elo update</b> — the same method <code>eloratings.net</code> uses: the winner gains and the
+      loser loses an amount scaled by the goal margin, a penalty shootout is scored as a draw (it was level
+      after extra time), and the World Cup weight (K=60) is applied at a neutral site. Those updated ratings
+      flow straight into everything downstream: the title-odds simulation, the matchup lab, and the scoreboard
+      picks all re-derive, so the championship numbers drift as the bracket plays out. The <b>Ratings</b> tab's
+      <i>Δ live</i> column shows exactly how far each side has moved from its pre-knockout baseline. For a game
+      <i>in progress</i>, the scoreboard goes further and shows a live <b>% to advance</b> from the current
+      score and minute (remaining expected goals scale with time left, added onto the score, with a draw going
+      to a coin-flip shootout). Two honest notes: the goal-rate side of the model (the attack/defence multipliers
+      that set how many goals a match produces) stays fixed from group-stage data — only the Elo strength input
+      updates — and the live-updated ratings use the same validated model structure fed fresher numbers, not a
+      separately re-validated system. The Elo replay is rebuilt from the baked-in baseline on every refresh, so
+      it never double-counts or drifts.
+
       <h3>What this is</h3>
       A value tool for the World Cup knockout rounds. For each match it shows <b>two independent
       models</b> — our own Elo-based line and a third-party feed — side by side, converts our number
@@ -1100,8 +1117,8 @@ function confRollup(){
 }
 function renderRatings(){
   const rows=Object.entries(T).map(([ab,t])=>({ab,...t,nm:nextMatch[ab]??null}));
-  const cols=[['rk','#'],['ab','Team'],['elo','Power'],['ga90','GA/90'],['poss','Poss%'],['sotr','Shot dom'],['luck','Luck (G−xGp)'],['nm','Next win%']];
-  const get={rk:(r,i)=>i+1,ab:r=>r.name,elo:r=>r.elo,ga90:r=>r.ga90,poss:r=>r.poss,sotr:r=>r.sotr,luck:r=>r.luck,nm:r=>r.nm};
+  const cols=[['rk','#'],['ab','Team'],['elo','Power'],['d','Δ live'],['ga90','GA/90'],['poss','Poss%'],['sotr','Shot dom'],['luck','Luck (G−xGp)'],['nm','Next win%']];
+  const get={rk:(r,i)=>i+1,ab:r=>r.name,elo:r=>r.elo,d:r=>(r.elo!=null&&r.elo0!=null?r.elo-r.elo0:0),ga90:r=>r.ga90,poss:r=>r.poss,sotr:r=>r.sotr,luck:r=>r.luck,nm:r=>r.nm};
   rows.sort((a,b)=>{
     const va=get[sortKey](a), vb=get[sortKey](b);
     if(va==null)return 1; if(vb==null)return -1;
@@ -1114,10 +1131,13 @@ function renderRatings(){
   rows.forEach((r,i)=>{
     const w=r.elo!=null?6+44*(r.elo-lo)/(hi-lo):0;
     const lk=r.luck, lkc = lk==null?'var(--mut2)':(lk>=1.5?'var(--gold)':lk<=-1.5?'var(--pos)':'var(--mut)');
+    const dv=(r.elo!=null&&r.elo0!=null)?(r.elo-r.elo0):0;
+    const dDisp=(r.elo0==null||dv===0)?'<span style="color:var(--mut2)">—</span>':('<span style="color:'+(dv>0?'var(--pos)':'var(--neg)')+';font-weight:700">'+(dv>0?'▲':'▼')+Math.abs(dv)+'</span>');
     html+=`<tr>
       <td class="rk num">${i+1}</td>
       <td><span class="abbr" style="width:auto;margin-right:8px">${r.ab}</span>${r.name}</td>
       <td class="frm num">${r.elo??'—'}<span class="mini" style="width:${w}px"></span></td>
+      <td class="num">${dDisp}</td>
       <td class="num" style="color:${r.ga90!=null&&r.ga90<=0.7?'var(--pos)':r.ga90>=2?'var(--neg)':'var(--ink)'}">${r.ga90!=null?r.ga90.toFixed(2):'—'}</td>
       <td class="num" style="color:var(--mut)">${r.poss!=null?r.poss.toFixed(0):'—'}</td>
       <td class="num">${r.sotr!=null?r.sotr.toFixed(0)+'%':'—'}</td>
@@ -1127,7 +1147,7 @@ function renderRatings(){
   });
   html+=`</tbody></table>`;
   const sec=document.getElementById('ratings');
-  sec.innerHTML='<div class="panel"><h2>The field at a glance</h2><p class="note">All 48 teams mapped by chance creation (shot dominance, across) against defensive solidity (GA/90, up — stingier is higher). Brighter gold means a higher Power rating. Top-right is the contender zone: sides that both create and prevent. Dashed lines mark the field medians.</p>'+ratingsScatter()+'</div>'+confRollup()+'<div class="btnrow" style="margin-bottom:10px"><button class="btn" id="ratCSV">⤓ export ratings CSV</button></div>'+html;
+  sec.innerHTML='<div class="panel"><h2>The field at a glance</h2><p class="note">All 48 teams mapped by chance creation (shot dominance, across) against defensive solidity (GA/90, up — stingier is higher). Brighter gold means a higher Power rating. Top-right is the contender zone: sides that both create and prevent. Dashed lines mark the field medians.</p>'+ratingsScatter()+'</div>'+confRollup()+'<p class="note" style="margin:6px 0 12px"><b style="color:var(--ink)">Live-updating model:</b> Power is each team’s current World-Football-Elo rating. After every completed knockout game it shifts by the standard Elo formula — winner gains, loser loses, scaled by goal margin; a shootout counts as a draw — so <b style="color:var(--ink)">Δ live</b> shows the move from the pre-knockout baseline. Every prediction in the tool (title odds, matchup lab, scoreboard picks) re-derives from these updated numbers.</p><div class="btnrow" style="margin-bottom:10px"><button class="btn" id="ratCSV">⤓ export ratings CSV</button></div>'+html;
   sec.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
     const k=th.dataset.k;
     if(k===sortKey)sortDir*=-1; else {sortKey=k; sortDir=(k==='ab'||k==='grp'||k==='ga90')?1:-1;}
@@ -2000,6 +2020,34 @@ function drawConnectors(){            // measure real card positions and draw or
 let _trsz; window.addEventListener('resize',()=>{ clearTimeout(_trsz); _trsz=setTimeout(()=>{ if(!document.getElementById('tree').classList.contains('hide'))drawConnectors(); },120); });
 
 /* ---------- tabs ---------- */
+/* ---------- live-updating model: Elo evolves with results ---------- */
+// Replays completed knockout games over the baked-in baseline using the standard
+// World Football Elo update (K=60 for the World Cup; goal-difference multiplier;
+// a shootout — level after extra time — counts as a draw; neutral site). Idempotent:
+// every call rebuilds from the immutable baseline, so re-syncing never drifts.
+function recomputeElo(games){
+  const prev={};
+  for(const c in T){ if(T[c].elo0==null)T[c].elo0=T[c].elo; prev[c]=T[c].elo; T[c].elo=T[c].elo0; }
+  const done=(games||[]).filter(g=>g.state==='post'&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]&&g.winnerName&&g.hs!==''&&g.as!=='').slice().sort((a,b)=>a.ms-b.ms);
+  done.forEach(g=>{ const hs=parseInt(g.hs,10), as=parseInt(g.as,10); if(isNaN(hs)||isNaN(as))return;
+    const h=g.hc, a=g.ac, K=60; let Wh,G;
+    if(hs===as){ Wh=0.5; G=1; }                                   // level after ET → shootout → draw for Elo
+    else { Wh=hs>as?1:0; const d=Math.abs(hs-as); G=d>=3?(11+d)/8:(d===2?1.5:1); }
+    const We=weElo(T[h].elo,T[a].elo), delta=K*G*(Wh-We);
+    T[h].elo=Math.round(T[h].elo+delta); T[a].elo=Math.round(T[a].elo-delta);
+  });
+  let changed=false; for(const c in T){ if(T[c].elo!==prev[c]){changed=true;break;} }
+  return changed;
+}
+// In-play probability for a game in progress: remaining expected goals scale with time left,
+// added onto the current score; draw → extra time/shootout treated as a coin flip.
+function inPlayAdvance(hc,ac,hs,as,minute){
+  const mm=modelMatch(hc,ac);
+  const frac=Math.min(Math.max((90-minute)/90,0),1);
+  const lar=mm.la*frac, lbr=mm.lb*frac, K=9; let pH=0,pD=0;
+  for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,lar)*poisP(j,lbr); const fh=hs+i,fa=as+j; if(fh>fa)pH+=p; else if(fh===fa)pD+=p; }
+  return {live:pH+0.5*pD, pre:mm.advH};
+}
 /* ---------- scoreboard (the day's games, from the live feed) ---------- */
 let sbDay=null;
 function localDateKey(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -2034,8 +2082,15 @@ function renderScoreboard(){
     const rowA='<div class="sbrow'+(aWin?' win':(hWin?' lose':''))+'"><span class="tn">'+g.away+'</span>'+scA+'</div>';
     let foot='';
     if(done&&g.winnerName) foot='<div class="sbfoot"><span class="adv">✓ '+g.winnerName+' advance</span></div>';
-    else if(!done&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]){ const mm=modelMatch(g.hc,g.ac); const fav=mm.advH>=0.5?g.home:g.away, fp=Math.max(mm.advH,mm.advA);
-      foot='<div class="sbfoot"><span class="mp">Model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance</span></div>'; }
+    else if(g.hc&&g.ac&&T[g.hc]&&T[g.ac]){
+      if(live){ const min=/HT/i.test(g.clk)?45:(parseInt((g.clk||'').replace(/[^0-9]/g,''),10)||0);
+        const ip=inPlayAdvance(g.hc,g.ac,parseInt(g.hs,10)||0,parseInt(g.as,10)||0,min);
+        const favH=ip.live>=0.5, fav=favH?g.home:g.away, fp=favH?ip.live:1-ip.live, pre=favH?ip.pre:1-ip.pre, d=(fp-pre)*100;
+        const arr=Math.abs(d)<0.5?'':(d>0?' <span style="color:var(--pos)">▲'+Math.abs(d).toFixed(0)+'</span>':' <span style="color:var(--neg)">▼'+Math.abs(d).toFixed(0)+'</span>');
+        foot='<div class="sbfoot"><span class="mp">Live model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance'+arr+'</span></div>'; }
+      else { const mm=modelMatch(g.hc,g.ac); const fav=mm.advH>=0.5?g.home:g.away, fp=Math.max(mm.advH,mm.advA);
+        foot='<div class="sbfoot"><span class="mp">Model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance</span></div>'; }
+    }
     const rnd='<span>'+(g.round||'')+'</span>';
     return '<div class="sbg '+cls+'"><div class="rnd">'+rnd+stat+'</div>'+rowH+rowA+foot+'</div>';
   }).join('');
@@ -2103,6 +2158,8 @@ async function syncLive(){
       games.push(g);
     });
     games.sort((a,b)=>a.ms-b.ms); LIVE.games=games;
+    const eloChanged=recomputeElo(games);
+    if(eloChanged){ for(const k in _advCache)delete _advCache[k]; _bracketRows=null; }
     const applied=applyLiveResults(results);
     LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length; LIVE.live=stripLive.length;
     const el=document.getElementById('liveStrip');
@@ -2110,7 +2167,7 @@ async function syncLive(){
       else if(latest){ el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+latest.home+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+latest.away+' <span style="color:var(--mut2)"> · '+latest.winName+' advance · latest result</span></span>'; } }
     const on=document.querySelector('nav button.on');
     if(on&&on.dataset.tab==='scoreboard') renderScoreboard();
-    else if(applied>0) rerenderActive();
+    else if(applied>0||eloChanged) rerenderActive();
   }catch(e){ LIVE.state='fail'; refreshSB(); }
   updateLiveBadge();
 }
