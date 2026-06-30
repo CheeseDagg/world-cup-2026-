@@ -86,6 +86,34 @@
   .contchip{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:11.5px;color:var(--mut)} .contchip b{color:var(--ink)}
   .tup{color:var(--pos);font-weight:700} .tdn{color:var(--neg);font-weight:700}
 
+  /* bet builder */
+  .bb-sel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .bb-sel select{background:var(--card2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit}
+  .bbquick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .bbqp{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:5px 10px;font-size:11.5px;color:var(--mut);cursor:pointer}
+  .bbqp:hover{border-color:var(--gold-dim);color:var(--ink)}
+  .mkt{width:100%;border-collapse:collapse;font-size:13px}
+  .mkt th{text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);font-weight:700;padding:8px;border-bottom:1px solid var(--line)}
+  .mkt td{padding:7px 8px;border-bottom:1px solid var(--line)}
+  .mkt .cat{color:var(--gold);font-weight:700;font-size:10px;letter-spacing:.07em;text-transform:uppercase;padding-top:13px}
+  .mkt .pct{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);text-align:right}
+  .mkt .odd{font-variant-numeric:tabular-nums;color:var(--mut);text-align:right}
+  .mkt .addc{text-align:right;width:1%;white-space:nowrap}
+  .bbadd{background:var(--gold);color:#19130a;border:0;border-radius:6px;padding:3px 9px;font-size:11px;font-weight:800;cursor:pointer}
+  .bbadd:hover{filter:brightness(1.1)}
+  .tick{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:16px}
+  .tickleg{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .tickleg.weak{background:rgba(255,107,107,.07);margin:0 -8px;padding:8px;border-radius:6px;border-bottom:0}
+  .tickleg .lp{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink)}
+  .tickrm{background:transparent;border:0;color:var(--neg);cursor:pointer;font-size:13px;padding:0 2px}
+  .tickcombo{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;padding-top:12px;border-top:2px solid var(--line)}
+  .tickcombo .big{font-size:24px;font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
+  .evbox{background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:14px;font-size:12.5px;color:var(--mut)}
+  .evbox input,.evbox select{background:var(--pitch);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit}
+  .evbox input{width:84px}
+  .evpos{color:var(--pos);font-weight:800} .evneg{color:var(--neg);font-weight:800}
+  .bbwarn{background:rgba(212,160,80,.1);border:1px solid var(--gold);border-radius:8px;padding:9px 11px;font-size:11.5px;color:var(--gold);margin-top:10px;line-height:1.5}
+
   /* tabs */
   nav{display:flex;flex-wrap:wrap;gap:4px;margin:16px 0 18px;border-bottom:1px solid var(--line)}
   nav button{background:none;border:0;color:var(--mut);font:inherit;font-weight:700;
@@ -306,6 +334,7 @@
     <button data-tab="tree">Bracket</button>
     <button data-tab="ratings">Ratings</button>
     <button data-tab="parlay">Parlay</button>
+    <button data-tab="builder">Builder</button>
     <button data-tab="staking">Staking</button>
     <button data-tab="calibrate">Calibrate</button>
     <button data-tab="method">Method</button>
@@ -313,6 +342,7 @@
 
   <section id="scoreboard"></section>
   <section id="tracker" class="hide"></section>
+  <section id="builder" class="hide"></section>
   <section id="matches" class="hide"></section>
   <section id="lab" class="hide"></section>
   <section id="bracket" class="hide"></section>
@@ -357,6 +387,17 @@
       updates — and the live-updated ratings use the same validated model structure fed fresher numbers, not a
       separately re-validated system. The Elo replay is rebuilt from the baked-in baseline on every refresh, so
       it never double-counts or drifts.
+
+      <h3>Builder — every market's true number</h3>
+      Pick any matchup and the <b>Builder</b> tab prints the model's probability and fair price for every
+      market — match result, to-advance, totals, both-teams-to-score, clean sheets, winning margins, and the
+      exact correct-score combos (win 1-0/2-0/3-0, win 2-1/3-1/4-1). Tap any of them to stack a ticket: it
+      multiplies the legs into a <b>combined probability</b>, flags the <b>weakest leg</b>, and — once you punch
+      in your book's price and any boost — tells you the breakeven and whether it's genuinely +EV. The point is
+      to see how thin a leg, or a whole parlay, really is <i>before</i> you place it, instead of trusting a feel.
+      Honest notes: the correct-score numbers are regulation-based estimates, and the combined number assumes the
+      legs are independent — true for legs from different games, but it'll warn you if you stack two from the same
+      match (those are correlated).
 
       <h3>What this is</h3>
       A value tool for the World Cup knockout rounds. For each match it shows <b>two independent
@@ -2193,6 +2234,71 @@ function renderTracker(){
     sec.innerHTML=h;
   }
 }
+/* ---------- bet builder: per-leg model probabilities + combined ---------- */
+function marketRows(hc,ac){
+  const mm=modelMatch(hc,ac), la=mm.la, lb=mm.lb, N=10, g=[];
+  for(let i=0;i<N;i++){g[i]=[];for(let j=0;j<N;j++)g[i][j]=poisP(i,la)*poisP(j,lb);}
+  const S=(f)=>{let s=0;for(let i=0;i<N;i++)for(let j=0;j<N;j++)if(f(i,j))s+=g[i][j];return s;};
+  const E=(i,j)=>g[i][j], H=T[hc].name, A=T[ac].name;
+  return [
+    ['Match result',[[H+' win',S((i,j)=>i>j)],['Draw',S((i,j)=>i===j)],[A+' win',S((i,j)=>i<j)]]],
+    ['To advance (incl. ET / pens)',[[H+' to advance',mm.advH],[A+' to advance',mm.advA]]],
+    ['Double chance',[[H+' or draw',S((i,j)=>i>=j)],[H+' or '+A,S((i,j)=>i!==j)],['Draw or '+A,S((i,j)=>i<=j)]]],
+    ['Total goals',[['Over 1.5',S((i,j)=>i+j>=2)],['Under 1.5',S((i,j)=>i+j<2)],['Over 2.5',S((i,j)=>i+j>=3)],['Under 2.5',S((i,j)=>i+j<3)],['Over 3.5',S((i,j)=>i+j>=4)],['Under 3.5',S((i,j)=>i+j<4)]]],
+    ['Both teams to score',[['Yes',S((i,j)=>i>=1&&j>=1)],['No',S((i,j)=>i===0||j===0)]]],
+    ['Clean sheet',[[H+' clean sheet',S((i,j)=>j===0)],[A+' clean sheet',S((i,j)=>i===0)]]],
+    ['Winning margin',[[H+' by 1',S((i,j)=>i-j===1)],[H+' by 2+',S((i,j)=>i-j>=2)],[A+' by 1',S((i,j)=>j-i===1)],[A+' by 2+',S((i,j)=>j-i>=2)]]],
+    ['Correct-score combos (regulation)',[[H+' 1-0 / 2-0 / 3-0',E(1,0)+E(2,0)+E(3,0)],[H+' 2-1 / 3-1 / 4-1',E(2,1)+E(3,1)+E(4,1)],[A+' 1-0 / 2-0 / 3-0',E(0,1)+E(0,2)+E(0,3)],[A+' 2-1 / 3-1 / 4-1',E(1,2)+E(1,3)+E(1,4)]]],
+  ];
+}
+const BB={hc:null,ac:null,legs:[],bookOdds:'',boost:0,_mkts:[]};
+function bbFixtures(){ const seen={},out=[]; (LIVE.games||[]).forEach(g=>{ if(g.hc&&g.ac&&T[g.hc]&&T[g.ac]){ const k=g.hc+'|'+g.ac; if(!seen[k]){seen[k]=1;out.push({hc:g.hc,ac:g.ac});} } }); return out.slice(0,12); }
+function renderBuilder(){
+  const sec=document.getElementById('builder'); if(!sec)return;
+  const teams=Object.entries(T).map(([c,t])=>({c,n:t.name})).sort((a,b)=>a.n.localeCompare(b.n));
+  if(!BB.hc||!BB.ac||!T[BB.hc]||!T[BB.ac]){ const fx=bbFixtures(); if(fx.length){BB.hc=fx[0].hc;BB.ac=fx[0].ac;} else {BB.hc=teams[0].c;BB.ac=teams[1].c;} }
+  const opt=(sel)=>teams.map(t=>'<option value="'+t.c+'"'+(t.c===sel?' selected':'')+'>'+t.n+'</option>').join('');
+  const rows=marketRows(BB.hc,BB.ac); BB._mkts=[];
+  let mtbl='<table class="mkt"><tr><th>Market — '+T[BB.hc].name+' vs '+T[BB.ac].name+' · neutral</th><th style="text-align:right">Model</th><th style="text-align:right">Fair</th><th></th></tr>';
+  rows.forEach(([cat,items])=>{ mtbl+='<tr><td class="cat" colspan="4">'+cat+'</td></tr>';
+    items.forEach(([label,p])=>{ const idx=BB._mkts.length; BB._mkts.push({label,p});
+      mtbl+='<tr><td>'+label+'</td><td class="pct">'+(p*100).toFixed(1)+'%</td><td class="odd">'+fairAm(p)+'</td><td class="addc"><button class="bbadd" data-idx="'+idx+'">+ add</button></td></tr>'; }); });
+  mtbl+='</table>';
+  const fx=bbFixtures();
+  const quick = fx.length? '<div class="bbquick">'+fx.map(f=>'<div class="bbqp" data-h="'+f.hc+'" data-a="'+f.ac+'">'+T[f.hc].name+' v '+T[f.ac].name+'</div>').join('')+'</div>' : '';
+  let tick;
+  if(BB.legs.length){
+    const probs=BB.legs.map(l=>l.p), combo=probs.reduce((a,b)=>a*b,1);
+    let minI=0; probs.forEach((p,i)=>{if(p<probs[minI])minI=i;});
+    const groups={}; BB.legs.forEach(l=>{const k=[l.hc,l.ac].sort().join('|');groups[k]=(groups[k]||0)+1;});
+    const corr=Object.values(groups).some(v=>v>1);
+    tick='<div class="tick"><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-bottom:6px">Your ticket · '+BB.legs.length+' leg'+(BB.legs.length>1?'s':'')+'</div>';
+    BB.legs.forEach((l,i)=>{ tick+='<div class="tickleg'+(i===minI&&BB.legs.length>1?' weak':'')+'"><span>'+T[l.hc].name+' v '+T[l.ac].name+' · <b style="color:var(--ink)">'+l.label+'</b>'+(i===minI&&BB.legs.length>1?' <span style="color:var(--neg);font-size:10px;font-weight:700">⚠ weakest</span>':'')+'</span><span style="display:flex;gap:12px;align-items:center"><span class="lp">'+(l.p*100).toFixed(1)+'%</span><button class="tickrm" data-i="'+i+'">✕</button></span></div>'; });
+    tick+='<div class="tickcombo"><span style="color:var(--mut)">Combined model probability</span><span class="big">'+(combo*100).toFixed(2)+'%</span></div>';
+    tick+='<div style="font-size:11.5px;color:var(--mut2);margin-top:4px">true price '+fairAm(combo)+' — what it should pay with no vig</div>';
+    if(corr) tick+='<div class="bbwarn">⚠ Two legs are from the same match, so they\'re correlated — the combined number assumes independent legs and isn\'t exact for those. Legs from different games are fine.</div>';
+    const bn=parseFloat((BB.bookOdds||'').replace('+','')); const dec=(BB.bookOdds!==''&&!isNaN(bn)&&bn!==0)?amToDec(bn):null;
+    tick+='<div class="evbox"><div style="margin-bottom:8px;font-weight:700;color:var(--ink)">Is it +EV?</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">your book\'s parlay odds <input id="bbBook" placeholder="+6021" value="'+(BB.bookOdds||'')+'"> boost <select id="bbBoost"><option value="0"'+(BB.boost==0?' selected':'')+'>none</option><option value="30"'+(BB.boost==30?' selected':'')+'>30%</option><option value="50"'+(BB.boost==50?' selected':'')+'>50%</option><option value="100"'+(BB.boost==100?' selected':'')+'>100%</option></select></div>';
+    if(dec){ const profit=dec-1, bprofit=profit*(1+BB.boost/100), bdec=1+bprofit, be=1/bdec, ev=combo*bprofit-(1-combo), pos=ev>0;
+      tick+='<div style="line-height:1.9">boosted price <b style="color:var(--ink)">'+fairAm(1/bdec)+'</b> · breakeven <b style="color:var(--ink)">'+(be*100).toFixed(2)+'%</b><br>model says <b style="color:var(--ink)">'+(combo*100).toFixed(2)+'%</b> → <span class="'+(pos?'evpos':'evneg')+'">'+(pos?'+EV':'−EV')+' ('+(ev>=0?'+':'')+(ev*100).toFixed(1)+'% per $1 · '+(ev>=0?'+':'−')+'$'+Math.abs(ev*25).toFixed(2)+' on $25)</span></div>';
+    } else { tick+='<div style="color:var(--mut2)">Enter your book\'s combined odds to test EV.</div>'; }
+    tick+='</div></div>';
+  } else {
+    tick='<div class="sbnote" style="text-align:left;padding:14px 2px">Pick a matchup and tap <b style="color:var(--gold)">+ add</b> on any market to build a ticket. Each leg carries the model\'s probability; the ticket shows the combined number with the weakest leg flagged — and an EV check once you punch in your book\'s price.</div>';
+  }
+  sec.innerHTML='<p class="note" style="margin:2px 0 12px">Every market\'s true probability from the model, for any matchup — then stack legs and see the combined number, so you know how thin a leg (or a whole ticket) is <b style="color:var(--ink)">before</b> you place it.</p>'
+    +'<div class="bb-sel"><select id="bbHome">'+opt(BB.hc)+'</select><span style="color:var(--mut2)">vs</span><select id="bbAway">'+opt(BB.ac)+'</select></div>'+quick+mtbl+tick;
+  const hSel=document.getElementById('bbHome'), aSel=document.getElementById('bbAway');
+  if(hSel)hSel.addEventListener('change',()=>{BB.hc=hSel.value;renderBuilder();});
+  if(aSel)aSel.addEventListener('change',()=>{BB.ac=aSel.value;renderBuilder();});
+  sec.querySelectorAll('.bbqp').forEach(b=>b.addEventListener('click',()=>{BB.hc=b.dataset.h;BB.ac=b.dataset.a;renderBuilder();}));
+  sec.querySelectorAll('.bbadd').forEach(b=>b.addEventListener('click',()=>{const m=BB._mkts[+b.dataset.idx]; if(m){BB.legs.push({hc:BB.hc,ac:BB.ac,label:m.label,p:m.p});renderBuilder();}}));
+  sec.querySelectorAll('.tickrm').forEach(b=>b.addEventListener('click',()=>{BB.legs.splice(+b.dataset.i,1);renderBuilder();}));
+  const bk=document.getElementById('bbBook'), bo=document.getElementById('bbBoost');
+  if(bk)bk.addEventListener('change',()=>{BB.bookOdds=bk.value.trim();renderBuilder();});
+  if(bo)bo.addEventListener('change',()=>{BB.boost=+bo.value;renderBuilder();});
+}
 /* ---------- live results auto-sync (ESPN public FIFA World Cup feed) ---------- */
 function mapTeam(t){ if(!t)return null;
   const ab=(t.abbreviation||'').toUpperCase(); if(T[ab])return ab;
@@ -2229,7 +2335,7 @@ function liveBadgeHTML(){ const s=LIVE.state;
   return ''; }
 function updateLiveBadge(){ const el=document.getElementById('livebadge'); if(el)el.innerHTML=liveBadgeHTML(); }
 function rerenderActive(){ const on=document.querySelector('nav button.on'), tab=on?on.dataset.tab:'matches';
-  const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,staking:renderStaking,calibrate:renderCalibrate}[tab];
+  const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,staking:renderStaking,calibrate:renderCalibrate}[tab];
   if(fn){ try{ fn(); }catch(e){} } }
 async function syncLive(){
   if(typeof fetch!=='function'){ LIVE.state='fail'; updateLiveBadge(); refreshSB(); return; }
@@ -2272,9 +2378,10 @@ function refreshSB(){ const on=document.querySelector('nav button.on'); if(!on)r
 function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?30000:240000); }); }
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
-  ['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
+  ['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
   if(b.dataset.tab==='scoreboard')renderScoreboard();
   if(b.dataset.tab==='tracker')renderTracker();
+  if(b.dataset.tab==='builder')renderBuilder();
   if(b.dataset.tab==='ratings')renderRatings();
   if(b.dataset.tab==='lab')renderLab();
   if(b.dataset.tab==='bracket')renderBracket();
