@@ -38,6 +38,33 @@
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,107,107,.55)}70%{box-shadow:0 0 0 8px rgba(255,107,107,0)}100%{box-shadow:0 0 0 0 rgba(255,107,107,0)}}
   .live .tag{font-size:10px;letter-spacing:.18em;color:var(--neg);font-weight:800}
 
+  /* scoreboard */
+  .sbdays{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 16px}
+  .sbday{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 13px;
+    font-size:12px;color:var(--mut);cursor:pointer;font-weight:600;letter-spacing:.02em;white-space:nowrap;transition:.12s}
+  .sbday:hover{border-color:var(--gold-dim);color:var(--ink)}
+  .sbday.on{background:var(--gold);border-color:var(--gold);color:#19130a;font-weight:800}
+  .sbday .c{opacity:.6;margin-left:5px;font-size:11px} .sbday.on .c{opacity:.8}
+  .sbhead{font-size:13px;color:var(--ink);font-weight:800;letter-spacing:.02em;margin:2px 0 13px}
+  .sbhead span{color:var(--mut2);font-weight:600;font-size:11.5px;margin-left:9px}
+  .sbgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(282px,1fr));gap:11px}
+  .sbg{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;border-left:3px solid var(--line)}
+  .sbg.livegame{border-left-color:var(--neg)} .sbg.done{border-left-color:var(--neu)}
+  .sbg .rnd{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;
+    font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);font-weight:700}
+  .sbstat{font-size:9.5px;letter-spacing:.12em;font-weight:800}
+  .sbstat.l{color:var(--neg)} .sbstat.f{color:var(--mut)} .sbstat.u{color:var(--mut2)}
+  .sbrow{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px;gap:10px}
+  .sbrow .tn{color:var(--ink);font-weight:600} .sbrow.win .tn{font-weight:800}
+  .sbrow.lose .tn{color:var(--mut)}
+  .sbrow .sc{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink);font-size:15px;min-width:18px;text-align:right}
+  .sbrow.lose .sc{color:var(--mut)}
+  .sbfoot{font-size:10.5px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line);letter-spacing:.02em}
+  .sbfoot .adv{color:var(--pos);font-weight:700} .sbfoot .mp{color:var(--mut2)} .sbfoot .mp b{color:var(--mut)}
+  .sblive{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--neg);margin-right:5px;
+    animation:pulse 1.6s infinite;vertical-align:baseline}
+  .sbnote{color:var(--mut2);font-size:12.5px;padding:20px 4px;text-align:center;line-height:1.6}
+
   /* tabs */
   nav{display:flex;flex-wrap:wrap;gap:4px;margin:16px 0 18px;border-bottom:1px solid var(--line)}
   nav button{background:none;border:0;color:var(--mut);font:inherit;font-weight:700;
@@ -250,7 +277,8 @@
   <div class="live" id="liveStrip"></div>
 
   <nav>
-    <button class="on" data-tab="matches">Matches</button>
+    <button class="on" data-tab="scoreboard">Scoreboard</button>
+    <button data-tab="matches">Matches</button>
     <button data-tab="lab">Matchup Lab</button>
     <button data-tab="bracket">Title Odds</button>
     <button data-tab="tree">Bracket</button>
@@ -261,7 +289,8 @@
     <button data-tab="method">Method</button>
   </nav>
 
-  <section id="matches"></section>
+  <section id="scoreboard"></section>
+  <section id="matches" class="hide"></section>
   <section id="lab" class="hide"></section>
   <section id="bracket" class="hide"></section>
   <section id="tree" class="hide"></section>
@@ -282,7 +311,9 @@
       and get filled as those finish too. The badge under the header shows the sync state. If the feed is ever
       unreachable, the page silently falls back to the results baked into the file, so it can never show a
       broken bracket — worst case it's as current as the last save. The <i>ratings and the model itself</i>
-      don't auto-update (those are built from group-stage data), only the knockout results do.
+      don't auto-update (those are built from group-stage data), only the knockout results do. The
+      <b>Scoreboard</b> tab reads the same feed to show each day's games — live scores with the minute,
+      finals with who advanced, and upcoming kickoffs with our model's pick to advance.
 
       <h3>What this is</h3>
       A value tool for the World Cup knockout rounds. For each match it shows <b>two independent
@@ -1969,6 +2000,48 @@ function drawConnectors(){            // measure real card positions and draw or
 let _trsz; window.addEventListener('resize',()=>{ clearTimeout(_trsz); _trsz=setTimeout(()=>{ if(!document.getElementById('tree').classList.contains('hide'))drawConnectors(); },120); });
 
 /* ---------- tabs ---------- */
+/* ---------- scoreboard (the day's games, from the live feed) ---------- */
+let sbDay=null;
+function localDateKey(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function renderScoreboard(){
+  const sec=document.getElementById('scoreboard'); if(!sec)return;
+  const games=LIVE.games;
+  if(!games||!games.length){
+    sec.innerHTML='<div class="sbnote">'+(LIVE.state==='fail'
+      ? 'Live scores are unavailable right now — the live feed couldn’t be reached from your browser.<br>The rest of the tool (bracket, title odds, ratings) still works from saved data.'
+      : 'Loading the day’s games from the live feed…')+'</div>';
+    return;
+  }
+  const byDay={}; games.forEach(g=>{ const k=localDateKey(g.ms); (byDay[k]=byDay[k]||[]).push(g); });
+  const days=Object.keys(byDay).sort(), todayK=localDateKey(Date.now());
+  let sel = (sbDay && byDay[sbDay]) ? sbDay : null;
+  if(!sel){ if(byDay[todayK]) sel=todayK; else { const fut=days.filter(d=>d>todayK); sel=fut.length?fut[0]:days[days.length-1]; } }
+  const fmtPill=k=>{ if(k===todayK)return 'Today'; return new Date(k+'T12:00:00').toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'}); };
+  const pills=days.map(k=>'<div class="sbday'+(k===sel?' on':'')+'" data-day="'+k+'">'+fmtPill(k)+'<span class="c">'+byDay[k].length+'</span></div>').join('');
+  const gs=byDay[sel].slice().sort((a,b)=>a.ms-b.ms);
+  const nLive=gs.filter(g=>g.state==='in').length, nDone=gs.filter(g=>g.state==='post').length, nUp=gs.filter(g=>g.state==='pre').length;
+  const dlabel=(sel===todayK?'Today · ':'')+new Date(sel+'T12:00:00').toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
+  const counts=[nLive?nLive+' live':'',nDone?nDone+' final':'',nUp?nUp+' upcoming':''].filter(Boolean).join(' · ');
+  const cards=gs.map(g=>{
+    const live=g.state==='in', done=g.state==='post';
+    const cls=live?'livegame':(done?'done':'up');
+    const stat = live?('<span class="sbstat l"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span>')
+               : done?'<span class="sbstat f">FT</span>'
+               : '<span class="sbstat u">'+new Date(g.ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+'</span>';
+    const hWin=done&&g.winnerName===g.home, aWin=done&&g.winnerName===g.away;
+    const scH=(live||done)?'<span class="sc">'+g.hs+'</span>':'', scA=(live||done)?'<span class="sc">'+g.as+'</span>':'';
+    const rowH='<div class="sbrow'+(hWin?' win':(aWin?' lose':''))+'"><span class="tn">'+g.home+'</span>'+scH+'</div>';
+    const rowA='<div class="sbrow'+(aWin?' win':(hWin?' lose':''))+'"><span class="tn">'+g.away+'</span>'+scA+'</div>';
+    let foot='';
+    if(done&&g.winnerName) foot='<div class="sbfoot"><span class="adv">✓ '+g.winnerName+' advance</span></div>';
+    else if(!done&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]){ const mm=modelMatch(g.hc,g.ac); const fav=mm.advH>=0.5?g.home:g.away, fp=Math.max(mm.advH,mm.advA);
+      foot='<div class="sbfoot"><span class="mp">Model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance</span></div>'; }
+    const rnd='<span>'+(g.round||'')+'</span>';
+    return '<div class="sbg '+cls+'"><div class="rnd">'+rnd+stat+'</div>'+rowH+rowA+foot+'</div>';
+  }).join('');
+  sec.innerHTML='<div class="sbdays">'+pills+'</div><div class="sbhead">'+dlabel+(counts?'<span>'+counts+'</span>':'')+'</div><div class="sbgrid">'+cards+'</div>';
+  sec.querySelectorAll('.sbday').forEach(p=>p.addEventListener('click',()=>{ sbDay=p.dataset.day; renderScoreboard(); }));
+}
 /* ---------- live results auto-sync (ESPN public FIFA World Cup feed) ---------- */
 function mapTeam(t){ if(!t)return null;
   const ab=(t.abbreviation||'').toUpperCase(); if(T[ab])return ab;
@@ -2000,7 +2073,7 @@ function applyLiveResults(results){
 const LIVE={state:'idle',updated:null,n:0};
 function liveBadgeHTML(){ const s=LIVE.state;
   if(s==='loading')return '<span style="color:var(--mut)">◌ syncing live results…</span>';
-  if(s==='ok')return '<span style="color:var(--pos)">● live</span> <span style="color:var(--mut2)">· '+LIVE.n+' knockout result'+(LIVE.n===1?'':'s')+' in'+(LIVE.updated?' · '+LIVE.updated.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'')+'</span>';
+  if(s==='ok'){ const head=LIVE.live?('<span style="color:var(--pos)">● '+LIVE.live+' live now</span>'):'<span style="color:var(--pos)">● live</span>'; return head+' <span style="color:var(--mut2)">· '+LIVE.n+' knockout result'+(LIVE.n===1?'':'s')+' in'+(LIVE.updated?' · upd '+LIVE.updated.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'')+'</span>'; }
   if(s==='fail')return '<span style="color:var(--mut2)">○ live feed unreachable — showing saved snapshot</span>';
   return ''; }
 function updateLiveBadge(){ const el=document.getElementById('livebadge'); if(el)el.innerHTML=liveBadgeHTML(); }
@@ -2008,30 +2081,45 @@ function rerenderActive(){ const on=document.querySelector('nav button.on'), tab
   const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,staking:renderStaking,calibrate:renderCalibrate}[tab];
   if(fn){ try{ fn(); }catch(e){} } }
 async function syncLive(){
-  if(typeof fetch!=='function'){ LIVE.state='fail'; updateLiveBadge(); return; }
-  LIVE.state='loading'; updateLiveBadge();
+  if(typeof fetch!=='function'){ LIVE.state='fail'; updateLiveBadge(); refreshSB(); return; }
+  LIVE.state='loading'; updateLiveBadge(); LIVE.anyLive=false;
   try{
     const url='https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260628-20260721&limit=300';
     const res=await fetch(url,{cache:'no-store'}); if(!res.ok)throw new Error('http '+res.status);
-    const data=await res.json(); const results={}; let latest=null, latestT=-1;
+    const data=await res.json(); const results={}; let latest=null, latestT=-1; const stripLive=[]; const games=[];
     (data.events||[]).forEach(ev=>{ const c=ev.competitions&&ev.competitions[0]; if(!c||!c.status||!c.status.type)return;
-      const st=c.status.type; if(st.state!=='post'||!st.completed)return;
-      const cm=c.competitors||[]; if(cm.length!==2)return;
-      const aw=cm[0].winner===true, bw=cm[1].winner===true; if(aw===bw)return;
-      const ac=mapTeam(cm[0].team), bc=mapTeam(cm[1].team); if(!ac||!bc||ac===bc)return;
-      const win=aw?ac:bc; results[ac<bc?ac+'|'+bc:bc+'|'+ac]=win;
-      const tms=Date.parse(ev.date)||0; if(tms>=latestT){ latestT=tms; latest={home:ac,away:bc,hs:cm[0].score,as:cm[1].score,win}; }
+      const st=c.status.type, cm=c.competitors||[]; if(cm.length!==2)return;
+      const H=cm.find(x=>x.homeAway==='home')||cm[0], A=cm.find(x=>x.homeAway==='away')||cm[1];
+      const hName=(H.team&&(H.team.displayName||H.team.name))||'?', aName=(A.team&&(A.team.displayName||A.team.name))||'?';
+      const hc=mapTeam(H.team), ac=mapTeam(A.team), ms=Date.parse(ev.date)||0;
+      const round=(c.altGameNote||'').replace(/^FIFA World Cup,\s*/i,'').trim();
+      const clk=(c.status.displayClock||'').toString();
+      const g={ms,home:hName,away:aName,hc,ac,state:st.state,hs:H.score,as:A.score,clk,winnerName:null,round};
+      if(st.state==='post'&&st.completed){ const hw=H.winner===true, aw=A.winner===true;
+        if(hw!==aw){ g.winnerName=hw?hName:aName;
+          if(hc&&ac&&hc!==ac){ results[hc<ac?hc+'|'+ac:ac+'|'+hc]=hw?hc:ac;
+            if(ms>=latestT){ latestT=ms; latest={home:hName,away:aName,hs:H.score,as:A.score,winName:hw?hName:aName}; } } } }
+      else if(st.state==='in'){ LIVE.anyLive=true; stripLive.push({home:hName,away:aName,hs:H.score,as:A.score,clk:clk||'LIVE'}); }
+      games.push(g);
     });
+    games.sort((a,b)=>a.ms-b.ms); LIVE.games=games;
     const applied=applyLiveResults(results);
-    LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length;
-    if(latest){ const el=document.getElementById('liveStrip'); if(el)el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+T[latest.home].name+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+T[latest.away].name+' <span style="color:var(--mut2)"> · '+T[latest.win].name+' advance · latest result</span></span>'; }
-    if(applied>0) rerenderActive();
-  }catch(e){ LIVE.state='fail'; }
+    LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length; LIVE.live=stripLive.length;
+    const el=document.getElementById('liveStrip');
+    if(el){ if(stripLive.length){ el.innerHTML=stripLive.slice(0,3).map(function(g){return '<span class="dot"></span><span class="tag">LIVE</span> <span>'+g.home+' <b class="num">'+g.hs+'</b>–<b class="num">'+g.as+'</b> '+g.away+' <span style="color:var(--mut2)"> · '+g.clk+'</span></span>';}).join('<span style="margin:0 8px;color:var(--mut2)">•</span>'); }
+      else if(latest){ el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+latest.home+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+latest.away+' <span style="color:var(--mut2)"> · '+latest.winName+' advance · latest result</span></span>'; } }
+    const on=document.querySelector('nav button.on');
+    if(on&&on.dataset.tab==='scoreboard') renderScoreboard();
+    else if(applied>0) rerenderActive();
+  }catch(e){ LIVE.state='fail'; refreshSB(); }
   updateLiveBadge();
 }
+function refreshSB(){ const on=document.querySelector('nav button.on'); if(on&&on.dataset.tab==='scoreboard'){ try{renderScoreboard();}catch(e){} } }
+function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?45000:240000); }); }
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
-  ['matches','lab','bracket','tree','ratings','parlay','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
+  ['scoreboard','matches','lab','bracket','tree','ratings','parlay','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
+  if(b.dataset.tab==='scoreboard')renderScoreboard();
   if(b.dataset.tab==='ratings')renderRatings();
   if(b.dataset.tab==='lab')renderLab();
   if(b.dataset.tab==='bracket')renderBracket();
@@ -2043,9 +2131,9 @@ document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()
 
 if(!applyHashBracket()) loadBracket();
 renderMatches();
+renderScoreboard();
 updateLiveBadge();
-syncLive();
-setInterval(syncLive, 180000);
+scheduleSync();
 </script>
 </body>
 </html>
