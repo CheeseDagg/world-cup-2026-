@@ -120,6 +120,13 @@
     letter-spacing:.12em;text-transform:uppercase;font-size:12px;padding:11px 14px;cursor:pointer;
     border-bottom:2px solid transparent;margin-bottom:-1px}
   nav button.on{color:var(--ink);border-bottom-color:var(--gold)}
+  nav.navg{margin:16px 0 0}
+  nav.navs{margin:9px 0 18px;border-bottom:0;gap:5px}
+  nav.navs button{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 13px;
+    font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;color:var(--mut);
+    border-bottom:1px solid var(--line);margin-bottom:0}
+  nav.navs button:hover{border-color:var(--gold-dim);color:var(--ink)}
+  nav.navs button.on{background:var(--gold);border-color:var(--gold);color:#19130a}
   nav button:hover{color:var(--ink)}
 
   /* match grid */
@@ -325,20 +332,8 @@
 
   <div class="live" id="liveStrip"></div>
 
-  <nav>
-    <button class="on" data-tab="scoreboard">Scoreboard</button>
-    <button data-tab="tracker">Tracker</button>
-    <button data-tab="matches">Matches</button>
-    <button data-tab="lab">Matchup Lab</button>
-    <button data-tab="bracket">Title Odds</button>
-    <button data-tab="tree">Bracket</button>
-    <button data-tab="ratings">Ratings</button>
-    <button data-tab="parlay">Parlay</button>
-    <button data-tab="builder">Builder</button>
-    <button data-tab="staking">Staking</button>
-    <button data-tab="calibrate">Calibrate</button>
-    <button data-tab="method">Method</button>
-  </nav>
+  <nav class="navg" id="navg"></nav>
+  <nav class="navs" id="navs"></nav>
 
   <section id="scoreboard"></section>
   <section id="tracker" class="hide"></section>
@@ -2334,7 +2329,8 @@ function liveBadgeHTML(){ const s=LIVE.state;
   if(s==='fail')return '<span style="color:var(--mut2)">○ live feed unreachable — showing saved snapshot</span>';
   return ''; }
 function updateLiveBadge(){ const el=document.getElementById('livebadge'); if(el)el.innerHTML=liveBadgeHTML(); }
-function rerenderActive(){ const on=document.querySelector('nav button.on'), tab=on?on.dataset.tab:'matches';
+let curTab='scoreboard', curGroup=0; const lastTab={};
+function rerenderActive(){ const tab=curTab;
   const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,staking:renderStaking,calibrate:renderCalibrate}[tab];
   if(fn){ try{ fn(); }catch(e){} } }
 async function syncLive(){
@@ -2367,34 +2363,44 @@ async function syncLive(){
     const el=document.getElementById('liveStrip');
     if(el){ if(stripLive.length){ el.innerHTML=stripLive.slice(0,3).map(function(g){return '<span class="dot"></span><span class="tag">LIVE</span> <span>'+g.home+' <b class="num">'+g.hs+'</b>–<b class="num">'+g.as+'</b> '+g.away+' <span style="color:var(--mut2)"> · '+g.clk+'</span></span>';}).join('<span style="margin:0 8px;color:var(--mut2)">•</span>'); }
       else if(latest){ el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+latest.home+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+latest.away+' <span style="color:var(--mut2)"> · '+latest.winName+' advance · latest result</span></span>'; } }
-    const on=document.querySelector('nav button.on'), at=on?on.dataset.tab:'';
+    const at=curTab;
     if(at==='scoreboard') renderScoreboard();
     else if(at==='tracker') renderTracker();
     else if(applied>0||eloChanged) rerenderActive();
   }catch(e){ LIVE.state='fail'; refreshSB(); }
   updateLiveBadge();
 }
-function refreshSB(){ const on=document.querySelector('nav button.on'); if(!on)return; const t=on.dataset.tab; try{ if(t==='scoreboard')renderScoreboard(); else if(t==='tracker')renderTracker(); }catch(e){} }
+function refreshSB(){ const t=curTab; try{ if(t==='scoreboard')renderScoreboard(); else if(t==='tracker')renderTracker(); }catch(e){} }
 function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?30000:240000); }); }
-document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
-  ['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
-  if(b.dataset.tab==='scoreboard')renderScoreboard();
-  if(b.dataset.tab==='tracker')renderTracker();
-  if(b.dataset.tab==='builder')renderBuilder();
-  if(b.dataset.tab==='ratings')renderRatings();
-  if(b.dataset.tab==='lab')renderLab();
-  if(b.dataset.tab==='bracket')renderBracket();
-  if(b.dataset.tab==='tree')renderTree();
-  if(b.dataset.tab==='calibrate')renderCalibrate();
-  if(b.dataset.tab==='parlay')renderParlay();
-  if(b.dataset.tab==='staking')renderStaking();
-}));
+const GROUPS=[
+  ['Live',['scoreboard','tracker']],
+  ['Games',['matches','lab']],
+  ['Tournament',['bracket','tree','ratings']],
+  ['Betting',['parlay','builder','staking']],
+  ['More',['calibrate','method']],
+];
+const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',staking:'Staking',calibrate:'Calibrate',method:'Method'};
+const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,staking:renderStaking,calibrate:renderCalibrate};
+const ALLTABS=['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','staking','calibrate','method'];
+function showTab(tab){
+  ALLTABS.forEach(id=>{const el=document.getElementById(id); if(el)el.classList.toggle('hide',id!==tab);});
+  curTab=tab; const gi=GROUPS.findIndex(g=>g[1].includes(tab)); if(gi>=0){curGroup=gi;lastTab[gi]=tab;}
+  buildNav(); const fn=RENDERFN[tab]; if(fn){try{fn();}catch(e){}}
+}
+function selectGroup(gi){ curGroup=gi; showTab(lastTab[gi]||GROUPS[gi][1][0]); }
+function buildNav(){
+  const g=document.getElementById('navg'), s=document.getElementById('navs'); if(!g||!s)return;
+  g.innerHTML=GROUPS.map((grp,i)=>'<button class="'+(i===curGroup?'on':'')+'" data-g="'+i+'">'+grp[0]+'</button>').join('');
+  s.innerHTML=GROUPS[curGroup][1].map(t=>'<button class="'+(t===curTab?'on':'')+'" data-t="'+t+'">'+TLABEL[t]+'</button>').join('');
+  g.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>selectGroup(+b.dataset.g)));
+  s.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.t)));
+}
 
 if(!applyHashBracket()) loadBracket();
 renderMatches();
 renderScoreboard();
 updateLiveBadge();
+buildNav();
 scheduleSync();
 </script>
 </body>
