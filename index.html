@@ -242,7 +242,8 @@
     </div>
     <div class="asof">
       data through <b id="asof">—</b><br>
-      power: World Football Elo · model: our Elo→Poisson + feed cross-check
+      power: World Football Elo · model: our Elo→Poisson + feed cross-check<br>
+      <span id="livebadge" style="font-size:11px"></span>
     </div>
   </header>
 
@@ -271,6 +272,18 @@
 
   <section id="method" class="hide">
     <div class="method">
+      <h3>Live results — auto-updating bracket</h3>
+      The bracket and the title-odds simulation <b>update themselves</b>. On load, and every few minutes
+      after, the page pulls completed knockout results from ESPN's public FIFA World Cup feed
+      (their undocumented but open <code>site.api.espn.com</code> scoreboard — no key, read straight from
+      your browser), locks each winner into its bracket slot, marks the loser out, drops the decided tie
+      from the Matches and Parlay lists, and re-runs the simulation so every downstream number reflects who
+      has actually advanced. It cascades — once a round's results are in, the next round's matchups are known
+      and get filled as those finish too. The badge under the header shows the sync state. If the feed is ever
+      unreachable, the page silently falls back to the results baked into the file, so it can never show a
+      broken bracket — worst case it's as current as the last save. The <i>ratings and the model itself</i>
+      don't auto-update (those are built from group-stage data), only the knockout results do.
+
       <h3>What this is</h3>
       A value tool for the World Cup knockout rounds. For each match it shows <b>two independent
       models</b> — our own Elo-based line and a third-party feed — side by side, converts our number
@@ -529,7 +542,7 @@
 
 <script>
 const DATA = {
-  asOf: "Mon Jun 29, 2026 · R32 in progress · Canada & Brazil through",
+  asOf: "Mon Jun 29, 2026 · R32 in progress · Canada, Brazil & Paraguay through · Germany out",
   live: {home:"BRA", away:"JPN", hs:2, as:1, final:true, note:"Full time · Brazil advance to Round of 16"},
   // form: group-stage record per team (factual). pts out of 9.
   teams: {
@@ -560,7 +573,6 @@ const DATA = {
   },
   // upcoming knockout matches with model win/draw/win probs (%) from live feed
   matches: [
-    {round:"Round of 32", ko:"Mon Jun 29 · 3:30 PM", h:"GER", a:"PAR", ph:71.7, pd:18.0, pa:10.3},
     {round:"Round of 32", ko:"Mon Jun 29 · 8:00 PM", h:"NED", a:"MAR", ph:41.7, pd:30.5, pa:27.8},
     {round:"Round of 32", ko:"Tue Jun 30 · 12:00 PM", h:"CIV", a:"NOR", ph:27.4, pd:27.6, pa:45.0},
     {round:"Round of 32", ko:"Tue Jun 30 · 4:00 PM", h:"FRA", a:"SWE", ph:76.4, pd:14.7, pa:8.9},
@@ -1102,7 +1114,7 @@ const MK={'1x2':'Match result','ou':'O/U 2.5','btts':'BTTS'};
 const amer=d=> d>=2 ? '+'+Math.round((d-1)*100) : ''+Math.round(-100/(d-1));
 // all 14 upcoming R32 ties — parlay legs price off the model, so no feed line is needed
 const PARLAY_TIES=[
-  {h:'GER',a:'PAR'},{h:'NED',a:'MAR'},{h:'CIV',a:'NOR'},{h:'FRA',a:'SWE'},{h:'MEX',a:'ECU'},
+  {h:'NED',a:'MAR'},{h:'CIV',a:'NOR'},{h:'FRA',a:'SWE'},{h:'MEX',a:'ECU'},
   {h:'ENG',a:'COD'},{h:'BEL',a:'SEN'},{h:'USA',a:'BIH'},{h:'ESP',a:'AUT'},{h:'POR',a:'CRO'},
   {h:'SUI',a:'DZA'},{h:'ARG',a:'CPV'},{h:'COL',a:'GHA'},{h:'AUS',a:'EGY'}
 ];
@@ -1479,7 +1491,7 @@ function renderLab(){
 /* ---------- bracket Monte Carlo (title & advancement odds) ---------- */
 // R32 ties in FIFA match order 73-88. locked = team that already advanced.
 const BRACKET_R32 = [
-  {h:'RSA',a:'CAN',locked:'CAN'}, {h:'GER',a:'PAR'}, {h:'NED',a:'MAR'}, {h:'BRA',a:'JPN',locked:'BRA'},
+  {h:'RSA',a:'CAN',locked:'CAN'}, {h:'GER',a:'PAR',locked:'PAR'}, {h:'NED',a:'MAR'}, {h:'BRA',a:'JPN',locked:'BRA'},
   {h:'FRA',a:'SWE'}, {h:'CIV',a:'NOR'}, {h:'MEX',a:'ECU'}, {h:'ENG',a:'COD'},
   {h:'USA',a:'BIH'}, {h:'BEL',a:'SEN'}, {h:'POR',a:'CRO'}, {h:'ESP',a:'AUT'},
   {h:'SUI',a:'DZA'}, {h:'ARG',a:'CPV'}, {h:'COL',a:'GHA'}, {h:'AUS',a:'EGY'}
@@ -1492,16 +1504,17 @@ const SF_PAIRS=[[0,1],[2,3]];               // matches 101-102 over QF winners; 
 const _advCache={};
 function advP(a,b){ const k=a+'|'+b; if(k in _advCache)return _advCache[k];
   const p=modelMatch(a,b).advH; _advCache[k]=p; _advCache[b+'|'+a]=1-p; return p; }
+const RESULT_LOCKS={};   // BR node id -> winner code, filled live from the ESPN feed
 function runMonteCarlo(N){
   const teams={}, finals={};
   BRACKET_R32.forEach(t=>{ (t.locked?[t.locked]:[t.h,t.a]).forEach(ab=>{ if(!teams[ab])teams[ab]={r16:0,qf:0,sf:0,fin:0,champ:0}; }); });
   const pick=(A,B)=> Math.random()<advP(A,B)?A:B;
   for(let n=0;n<N;n++){
     const r32=BRACKET_R32.map(t=> t.locked? t.locked : pick(t.h,t.a));
-    const r16=R16_PAIRS.map(([i,j])=>pick(r32[i],r32[j]));
-    const qf=QF_PAIRS.map(([i,j])=>pick(r16[i],r16[j]));
-    const sf=SF_PAIRS.map(([i,j])=>pick(qf[i],qf[j]));
-    const champ=pick(sf[0],sf[1]);
+    const r16=R16_PAIRS.map(([i,j],k)=>RESULT_LOCKS['m'+(89+k)]||pick(r32[i],r32[j]));
+    const qf=QF_PAIRS.map(([i,j],k)=>RESULT_LOCKS['m'+(97+k)]||pick(r16[i],r16[j]));
+    const sf=SF_PAIRS.map(([i,j],k)=>RESULT_LOCKS['m'+(101+k)]||pick(qf[i],qf[j]));
+    const champ=RESULT_LOCKS['mF']||pick(sf[0],sf[1]);
     const fk=sf[0]<sf[1]?sf[0]+'|'+sf[1]:sf[1]+'|'+sf[0]; finals[fk]=(finals[fk]||0)+1;
     r32.forEach(ab=>teams[ab].r16++); r16.forEach(ab=>teams[ab].qf++);
     qf.forEach(ab=>teams[ab].sf++); sf.forEach(ab=>teams[ab].fin++); teams[champ].champ++;
@@ -1669,7 +1682,7 @@ function renderBracket(){
 /* ---------- interactive bracket ---------- */
 // match tree in vertical-display order; r0 slots are fixed teams (CAN & BRA already through), later slots reference feeder match ids
 const BR=[
-  {id:'m74',r:0,a:'GER',b:'PAR'},{id:'m77',r:0,a:'FRA',b:'SWE'},
+  {id:'m74',r:0,a:'GER',b:'PAR',lock:'PAR'},{id:'m77',r:0,a:'FRA',b:'SWE'},
   {id:'m73',r:0,a:'RSA',b:'CAN',lock:'CAN'},{id:'m75',r:0,a:'NED',b:'MAR'},
   {id:'m83',r:0,a:'POR',b:'CRO'},{id:'m84',r:0,a:'ESP',b:'AUT'},
   {id:'m81',r:0,a:'USA',b:'BIH'},{id:'m82',r:0,a:'BEL',b:'SEN'},
@@ -1776,7 +1789,7 @@ function computeTicket(){
 }
 // leverage: which single elimination elsewhere most lifts X's number for a market (conditional MC)
 const TIE_OF={}; BRACKET_R32.forEach((t,i)=>{ (t.locked?[t.locked]:[t.h,t.a]).forEach(ab=>TIE_OF[ab]=i); });
-const ELIM_SET={RSA:1,JPN:1};
+const ELIM_SET={RSA:1,JPN:1,GER:1};
 const TK_SHORT={champ:'title',fin:'final',sf:'semis',qf:'quarters',r16:'R16'};
 const LEV_N=30000;
 function survDesc(Y){                 // descriptor for "Y wins their next pending game"
@@ -1956,6 +1969,66 @@ function drawConnectors(){            // measure real card positions and draw or
 let _trsz; window.addEventListener('resize',()=>{ clearTimeout(_trsz); _trsz=setTimeout(()=>{ if(!document.getElementById('tree').classList.contains('hide'))drawConnectors(); },120); });
 
 /* ---------- tabs ---------- */
+/* ---------- live results auto-sync (ESPN public FIFA World Cup feed) ---------- */
+function mapTeam(t){ if(!t)return null;
+  const ab=(t.abbreviation||'').toUpperCase(); if(T[ab])return ab;
+  const nm=(t.displayName||t.name||t.shortDisplayName||'').toLowerCase().trim();
+  for(const c in T){ if(T[c].name.toLowerCase()===nm)return c; }
+  const alias={'south korea':'KOR','korea republic':'KOR','korea':'KOR','iran':'IRN','ir iran':'IRN','czech republic':'CZE','czechia':'CZE','turkiye':'TUR','türkiye':'TUR','turkey':'TUR','ivory coast':'CIV',"cote d'ivoire":'CIV','côte d’ivoire':'CIV',"côte d'ivoire":'CIV','cape verde':'CPV','cabo verde':'CPV','dr congo':'COD','congo dr':'COD','democratic republic of congo':'COD','curacao':'CUW','curaçao':'CUW','bosnia and herzegovina':'BIH','bosnia & herzegovina':'BIH','bosnia & herz.':'BIH','united states':'USA','usa':'USA','saudi arabia':'KSA'};
+  return alias[nm]||null;
+}
+function brParticipants(id){ const m=BRX[id]; if(!m)return [null,null];
+  const side=x=> (typeof x==='string'&&T[x])?x : (RESULT_LOCKS[x]||(BRX[x]&&BRX[x].lock)||null);
+  return [side(m.a), side(m.b)]; }
+function applyLiveResults(results){
+  let applied=0, changed=false; const byRound={};
+  Object.values(BRX).forEach(m=>{ (byRound[m.r]=byRound[m.r]||[]).push(m); });
+  for(let r=0;r<=4;r++){ (byRound[r]||[]).forEach(m=>{
+    if(RESULT_LOCKS[m.id]||m.lock) return;
+    const [a,b]=brParticipants(m.id); if(!a||!b)return;
+    const key=a<b?a+'|'+b:b+'|'+a, w=results[key];
+    if(w&&(w===a||w===b)){ RESULT_LOCKS[m.id]=w; m.lock=w; ELIM_SET[w===a?b:a]=1; applied++; changed=true; }
+  }); }
+  if(changed){
+    BRACKET_R32.forEach((t,i)=>{ const n='m'+(73+i); if(RESULT_LOCKS[n])t.locked=RESULT_LOCKS[n]; });
+    for(let i=PARLAY_TIES.length-1;i>=0;i--){ const t=PARLAY_TIES[i], k=t.h<t.a?t.h+'|'+t.a:t.a+'|'+t.h; if(results[k])PARLAY_TIES.splice(i,1); }
+    for(let i=DATA.matches.length-1;i>=0;i--){ const m=DATA.matches[i], k=m.h<m.a?m.h+'|'+m.a:m.a+'|'+m.h; if(results[k])DATA.matches.splice(i,1); }
+    _bracketRows=null;
+  }
+  return applied;
+}
+const LIVE={state:'idle',updated:null,n:0};
+function liveBadgeHTML(){ const s=LIVE.state;
+  if(s==='loading')return '<span style="color:var(--mut)">◌ syncing live results…</span>';
+  if(s==='ok')return '<span style="color:var(--pos)">● live</span> <span style="color:var(--mut2)">· '+LIVE.n+' knockout result'+(LIVE.n===1?'':'s')+' in'+(LIVE.updated?' · '+LIVE.updated.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'')+'</span>';
+  if(s==='fail')return '<span style="color:var(--mut2)">○ live feed unreachable — showing saved snapshot</span>';
+  return ''; }
+function updateLiveBadge(){ const el=document.getElementById('livebadge'); if(el)el.innerHTML=liveBadgeHTML(); }
+function rerenderActive(){ const on=document.querySelector('nav button.on'), tab=on?on.dataset.tab:'matches';
+  const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,staking:renderStaking,calibrate:renderCalibrate}[tab];
+  if(fn){ try{ fn(); }catch(e){} } }
+async function syncLive(){
+  if(typeof fetch!=='function'){ LIVE.state='fail'; updateLiveBadge(); return; }
+  LIVE.state='loading'; updateLiveBadge();
+  try{
+    const url='https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260628-20260721&limit=300';
+    const res=await fetch(url,{cache:'no-store'}); if(!res.ok)throw new Error('http '+res.status);
+    const data=await res.json(); const results={}; let latest=null, latestT=-1;
+    (data.events||[]).forEach(ev=>{ const c=ev.competitions&&ev.competitions[0]; if(!c||!c.status||!c.status.type)return;
+      const st=c.status.type; if(st.state!=='post'||!st.completed)return;
+      const cm=c.competitors||[]; if(cm.length!==2)return;
+      const aw=cm[0].winner===true, bw=cm[1].winner===true; if(aw===bw)return;
+      const ac=mapTeam(cm[0].team), bc=mapTeam(cm[1].team); if(!ac||!bc||ac===bc)return;
+      const win=aw?ac:bc; results[ac<bc?ac+'|'+bc:bc+'|'+ac]=win;
+      const tms=Date.parse(ev.date)||0; if(tms>=latestT){ latestT=tms; latest={home:ac,away:bc,hs:cm[0].score,as:cm[1].score,win}; }
+    });
+    const applied=applyLiveResults(results);
+    LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length;
+    if(latest){ const el=document.getElementById('liveStrip'); if(el)el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+T[latest.home].name+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+T[latest.away].name+' <span style="color:var(--mut2)"> · '+T[latest.win].name+' advance · latest result</span></span>'; }
+    if(applied>0) rerenderActive();
+  }catch(e){ LIVE.state='fail'; }
+  updateLiveBadge();
+}
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
   ['matches','lab','bracket','tree','ratings','parlay','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
@@ -1970,6 +2043,9 @@ document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()
 
 if(!applyHashBracket()) loadBracket();
 renderMatches();
+updateLiveBadge();
+syncLive();
+setInterval(syncLive, 180000);
 </script>
 </body>
 </html>
