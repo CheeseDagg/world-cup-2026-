@@ -65,6 +65,27 @@
     animation:pulse 1.6s infinite;vertical-align:baseline}
   .sbnote{color:var(--mut2);font-size:12.5px;padding:20px 4px;text-align:center;line-height:1.6}
 
+  /* game tracker */
+  .trk{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--neg);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+  .trk.idle{border-left-color:var(--line)} .trk.fin{border-left-color:var(--neu);padding:12px 16px}
+  .trk .top{display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-bottom:12px}
+  .trk .lv{color:var(--neg);font-weight:800;display:flex;align-items:center;gap:6px}
+  .trk .score{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;margin:4px 0 16px}
+  .trk .tnm{font-size:16px;font-weight:700;color:var(--ink)} .trk .tnm.a{text-align:right}
+  .trk .sc{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ink);text-align:center;letter-spacing:2px}
+  .wpbar{display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:2px 0 6px;font-size:11px;font-weight:800}
+  .wpbar div{display:flex;align-items:center;justify-content:center;min-width:0;white-space:nowrap;overflow:hidden;transition:width .4s}
+  .wpbar .h{background:var(--gold);color:#19130a} .wpbar .d{background:var(--card2);color:var(--mut)} .wpbar .a{background:#2f6f57;color:#eafff4}
+  .wplab{display:flex;justify-content:space-between;font-size:10px;color:var(--mut2);margin-bottom:14px;letter-spacing:.03em}
+  .trkgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .trkbox{background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .trkbox .lab{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-bottom:6px}
+  .trkbox .val{font-size:15px;font-weight:800;color:var(--ink)}
+  .trkbox .sub{font-size:11px;color:var(--mut);font-weight:600;margin-top:3px}
+  .cont{display:flex;flex-wrap:wrap;gap:6px}
+  .contchip{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:11.5px;color:var(--mut)} .contchip b{color:var(--ink)}
+  .tup{color:var(--pos);font-weight:700} .tdn{color:var(--neg);font-weight:700}
+
   /* tabs */
   nav{display:flex;flex-wrap:wrap;gap:4px;margin:16px 0 18px;border-bottom:1px solid var(--line)}
   nav button{background:none;border:0;color:var(--mut);font:inherit;font-weight:700;
@@ -278,6 +299,7 @@
 
   <nav>
     <button class="on" data-tab="scoreboard">Scoreboard</button>
+    <button data-tab="tracker">Tracker</button>
     <button data-tab="matches">Matches</button>
     <button data-tab="lab">Matchup Lab</button>
     <button data-tab="bracket">Title Odds</button>
@@ -290,6 +312,7 @@
   </nav>
 
   <section id="scoreboard"></section>
+  <section id="tracker" class="hide"></section>
   <section id="matches" class="hide"></section>
   <section id="lab" class="hide"></section>
   <section id="bracket" class="hide"></section>
@@ -326,7 +349,10 @@
       <i>Δ live</i> column shows exactly how far each side has moved from its pre-knockout baseline. For a game
       <i>in progress</i>, the scoreboard goes further and shows a live <b>% to advance</b> from the current
       score and minute (remaining expected goals scale with time left, added onto the score, with a draw going
-      to a coin-flip shootout). Two honest notes: the goal-rate side of the model (the attack/defence multipliers
+      to a coin-flip shootout). The <b>Tracker</b> tab is the dedicated live view: for a game in progress it
+      lays out the full live model card — win/draw/win bar, each side's to-advance, the projected final score,
+      the match over 2.5, and the most likely finals from the current state — all moving on each refresh, with
+      ▲▼ against the pre-match line. Two honest notes: the goal-rate side of the model (the attack/defence multipliers
       that set how many goals a match produces) stays fixed from group-stage data — only the Elo strength input
       updates — and the live-updated ratings use the same validated model structure fed fresher numbers, not a
       separately re-validated system. The Elo replay is rebuilt from the baked-in baseline on every refresh, so
@@ -2060,17 +2086,12 @@ function renderScoreboard(){
       : 'Loading the day’s games from the live feed…')+'</div>';
     return;
   }
-  const byDay={}; games.forEach(g=>{ const k=localDateKey(g.ms); (byDay[k]=byDay[k]||[]).push(g); });
+  const byDay={}; games.forEach(g=>{ if(!g.ms)return; const k=localDateKey(g.ms); (byDay[k]=byDay[k]||[]).push(g); });
   const days=Object.keys(byDay).sort(), todayK=localDateKey(Date.now());
-  let sel = (sbDay && byDay[sbDay]) ? sbDay : null;
-  if(!sel){ if(byDay[todayK]) sel=todayK; else { const fut=days.filter(d=>d>todayK); sel=fut.length?fut[0]:days[days.length-1]; } }
+  let sel = sbDay || 'all'; if(sel!=='all' && !byDay[sel]) sel='all';
   const fmtPill=k=>{ if(k===todayK)return 'Today'; return new Date(k+'T12:00:00').toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'}); };
-  const pills=days.map(k=>'<div class="sbday'+(k===sel?' on':'')+'" data-day="'+k+'">'+fmtPill(k)+'<span class="c">'+byDay[k].length+'</span></div>').join('');
-  const gs=byDay[sel].slice().sort((a,b)=>a.ms-b.ms);
-  const nLive=gs.filter(g=>g.state==='in').length, nDone=gs.filter(g=>g.state==='post').length, nUp=gs.filter(g=>g.state==='pre').length;
-  const dlabel=(sel===todayK?'Today · ':'')+new Date(sel+'T12:00:00').toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
-  const counts=[nLive?nLive+' live':'',nDone?nDone+' final':'',nUp?nUp+' upcoming':''].filter(Boolean).join(' · ');
-  const cards=gs.map(g=>{
+  const pills='<div class="sbday'+(sel==='all'?' on':'')+'" data-day="all">All<span class="c">'+games.length+'</span></div>'+days.map(k=>'<div class="sbday'+(k===sel?' on':'')+'" data-day="'+k+'">'+fmtPill(k)+'<span class="c">'+byDay[k].length+'</span></div>').join('');
+  const sbCard=(g)=>{
     const live=g.state==='in', done=g.state==='post';
     const cls=live?'livegame':(done?'done':'up');
     const stat = live?('<span class="sbstat l"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span>')
@@ -2093,9 +2114,84 @@ function renderScoreboard(){
     }
     const rnd='<span>'+(g.round||'')+'</span>';
     return '<div class="sbg '+cls+'"><div class="rnd">'+rnd+stat+'</div>'+rowH+rowA+foot+'</div>';
-  }).join('');
-  sec.innerHTML='<div class="sbdays">'+pills+'</div><div class="sbhead">'+dlabel+(counts?'<span>'+counts+'</span>':'')+'</div><div class="sbgrid">'+cards+'</div>';
+  };
+  const dayHead=(k,gs)=>{ const nLive=gs.filter(g=>g.state==='in').length, nDone=gs.filter(g=>g.state==='post').length, nUp=gs.filter(g=>g.state==='pre').length;
+    const dl=(k===todayK?'Today · ':'')+new Date(k+'T12:00:00').toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
+    const cs=[nLive?nLive+' live':'',nDone?nDone+' final':'',nUp?nUp+' upcoming':''].filter(Boolean).join(' · ');
+    return '<div class="sbhead">'+dl+(cs?'<span>'+cs+'</span>':'')+'</div>'; };
+  const dayBlock=(k)=>{ const gs=byDay[k].slice().sort((a,b)=>a.ms-b.ms); return dayHead(k,gs)+'<div class="sbgrid">'+gs.map(sbCard).join('')+'</div>'; };
+  let body; if(sel==='all'){ body=days.map(k=>'<div style="margin-bottom:20px">'+dayBlock(k)+'</div>').join(''); } else { body=dayBlock(sel); }
+  sec.innerHTML='<div class="sbdays">'+pills+'</div>'+body;
   sec.querySelectorAll('.sbday').forEach(p=>p.addEventListener('click',()=>{ sbDay=p.dataset.day; renderScoreboard(); }));
+}
+/* ---------- game tracker: full live model odds ---------- */
+function inPlayOdds(hc,ac,hs,as,minute){
+  const mm=modelMatch(hc,ac);
+  const frac=Math.min(Math.max((90-minute)/90,0),1);
+  const lar=mm.la*frac, lbr=mm.lb*frac, K=10;
+  let pH=0,pD=0,pA=0,pOver=0; const cont={};
+  for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,lar)*poisP(j,lbr); const fh=hs+i, fa=as+j;
+    if(fh>fa)pH+=p; else if(fh===fa)pD+=p; else pA+=p;
+    cont[fh+'–'+fa]=(cont[fh+'–'+fa]||0)+p;
+    if(fh+fa>=3)pOver+=p; }
+  const top=Object.entries(cont).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  return {pH,pD,pA, advH:pH+0.5*pD, advA:pA+0.5*pD, projH:hs+lar, projA:as+lbr, top, pOver,
+          preH:mm.ph, preD:mm.pd, preA:mm.pa, preAdvH:mm.advH};
+}
+function wpBar(pH,pD,pA,hn,an){
+  const seg=(p,cls)=>'<div class="'+cls+'" style="width:'+(p*100).toFixed(1)+'%">'+(p>=0.09?Math.round(p*100)+'%':'')+'</div>';
+  return '<div class="wpbar">'+seg(pH,'h')+seg(pD,'d')+seg(pA,'a')+'</div>'
+    +'<div class="wplab"><span>'+hn+' '+Math.round(pH*100)+'%</span><span>Draw '+Math.round(pD*100)+'%</span><span>'+an+' '+Math.round(pA*100)+'%</span></div>';
+}
+function trkDelta(now,pre){ const d=(now-pre)*100; if(Math.abs(d)<0.5)return '';
+  return d>0?' <span class="tup">▲'+Math.abs(d).toFixed(0)+'</span>':' <span class="tdn">▼'+Math.abs(d).toFixed(0)+'</span>'; }
+function trackerPanel(g){
+  if(!(g.hc&&g.ac&&T[g.hc]&&T[g.ac])) return '<div class="trk"><div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span></div><div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+g.hs+' – '+g.as+'</div><div class="tnm a">'+g.away+'</div></div><div class="sbnote" style="padding:6px">Model odds unavailable for this matchup.</div></div>';
+  const min=/HT/i.test(g.clk)?45:(parseInt((g.clk||'').replace(/[^0-9]/g,''),10)||0);
+  const hs=parseInt(g.hs,10)||0, as=parseInt(g.as,10)||0, o=inPlayOdds(g.hc,g.ac,hs,as,min);
+  return '<div class="trk">'
+   +'<div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span></div>'
+   +'<div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+hs+' – '+as+'</div><div class="tnm a">'+g.away+'</div></div>'
+   +wpBar(o.pH,o.pD,o.pA,g.home,g.away)
+   +'<div class="trkgrid">'
+     +'<div class="trkbox"><div class="lab">To advance</div><div class="val">'+g.home+' '+Math.round(o.advH*100)+'%'+trkDelta(o.advH,o.preAdvH)+'</div><div class="sub">'+g.away+' '+Math.round(o.advA*100)+'%</div></div>'
+     +'<div class="trkbox"><div class="lab">Projected final</div><div class="val">'+o.projH.toFixed(1)+' – '+o.projA.toFixed(1)+'</div><div class="sub">match total over 2.5: '+Math.round(o.pOver*100)+'%</div></div>'
+   +'</div>'
+   +'<div class="trkbox" style="background:transparent;border:0;padding:0"><div class="lab" style="margin-bottom:7px">Most likely final from here</div><div class="cont">'+o.top.map(t=>'<span class="contchip"><b>'+t[0]+'</b> '+Math.round(t[1]*100)+'%</span>').join('')+'</div></div>'
+   +'</div>';
+}
+function upcomingPanel(g){
+  if(!(g.hc&&g.ac&&T[g.hc]&&T[g.ac])) return '';
+  const mm=modelMatch(g.hc,g.ac), ko=new Date(g.ms).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'});
+  return '<div class="trk idle">'
+   +'<div class="top"><span>'+(g.round||'Knockout')+'</span><span style="color:var(--mut2)">'+ko+'</span></div>'
+   +'<div class="score"><div class="tnm">'+g.home+'</div><div class="sc" style="font-size:13px;color:var(--mut2);letter-spacing:.1em">VS</div><div class="tnm a">'+g.away+'</div></div>'
+   +wpBar(mm.ph,mm.pd,mm.pa,g.home,g.away)
+   +'<div class="trkgrid"><div class="trkbox"><div class="lab">To advance</div><div class="val">'+(mm.advH>=0.5?g.home:g.away)+' '+Math.round(Math.max(mm.advH,mm.advA)*100)+'%</div></div>'
+   +'<div class="trkbox"><div class="lab">Projected score</div><div class="val">'+mm.la.toFixed(1)+' – '+mm.lb.toFixed(1)+'</div></div></div>'
+   +'</div>';
+}
+function finishedPanel(g){
+  return '<div class="trk fin"><div class="top"><span>'+(g.round||'Knockout')+'</span><span style="color:var(--mut)">FT</span></div>'
+   +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:15px;gap:10px"><span style="color:var(--ink);font-weight:700">'+g.home+' '+g.hs+' – '+g.as+' '+g.away+'</span><span style="color:var(--pos);font-weight:700;font-size:12px">✓ '+g.winnerName+' advance</span></div></div>';
+}
+function renderTracker(){
+  const sec=document.getElementById('tracker'); if(!sec)return;
+  const games=LIVE.games;
+  if(!games||!games.length){ sec.innerHTML='<div class="sbnote">'+(LIVE.state==='fail'
+    ?'Live odds are unavailable — the live feed couldn’t be reached.<br>The rest of the tool works from saved data.'
+    :'Loading live games from the feed…')+'</div>'; return; }
+  const liveG=games.filter(g=>g.state==='in');
+  if(liveG.length){
+    sec.innerHTML='<p class="note" style="margin:2px 0 14px">Live model odds — recomputed from the score and clock on every refresh (~30s while a game is on). ▲▼ shows the shift from the pre-match number.</p>'+liveG.map(trackerPanel).join('');
+  } else {
+    const up=games.filter(g=>g.state==='pre').sort((a,b)=>a.ms-b.ms).slice(0,3);
+    const fin=games.filter(g=>g.state==='post'&&g.winnerName).sort((a,b)=>b.ms-a.ms).slice(0,3);
+    let h='<p class="note" style="margin:2px 0 14px">No game is live right now. Next up, with the model’s pre-match odds:</p>';
+    h+= up.length? up.map(upcomingPanel).join('') : '<div class="sbnote">No upcoming knockout games in the feed window.</div>';
+    if(fin.length) h+='<h2 style="font-size:13px;color:var(--mut);font-weight:700;letter-spacing:.02em;margin:18px 0 10px">Just finished</h2>'+fin.map(finishedPanel).join('');
+    sec.innerHTML=h;
+  }
 }
 /* ---------- live results auto-sync (ESPN public FIFA World Cup feed) ---------- */
 function mapTeam(t){ if(!t)return null;
@@ -2165,18 +2261,20 @@ async function syncLive(){
     const el=document.getElementById('liveStrip');
     if(el){ if(stripLive.length){ el.innerHTML=stripLive.slice(0,3).map(function(g){return '<span class="dot"></span><span class="tag">LIVE</span> <span>'+g.home+' <b class="num">'+g.hs+'</b>–<b class="num">'+g.as+'</b> '+g.away+' <span style="color:var(--mut2)"> · '+g.clk+'</span></span>';}).join('<span style="margin:0 8px;color:var(--mut2)">•</span>'); }
       else if(latest){ el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+latest.home+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+latest.away+' <span style="color:var(--mut2)"> · '+latest.winName+' advance · latest result</span></span>'; } }
-    const on=document.querySelector('nav button.on');
-    if(on&&on.dataset.tab==='scoreboard') renderScoreboard();
+    const on=document.querySelector('nav button.on'), at=on?on.dataset.tab:'';
+    if(at==='scoreboard') renderScoreboard();
+    else if(at==='tracker') renderTracker();
     else if(applied>0||eloChanged) rerenderActive();
   }catch(e){ LIVE.state='fail'; refreshSB(); }
   updateLiveBadge();
 }
-function refreshSB(){ const on=document.querySelector('nav button.on'); if(on&&on.dataset.tab==='scoreboard'){ try{renderScoreboard();}catch(e){} } }
-function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?45000:240000); }); }
+function refreshSB(){ const on=document.querySelector('nav button.on'); if(!on)return; const t=on.dataset.tab; try{ if(t==='scoreboard')renderScoreboard(); else if(t==='tracker')renderTracker(); }catch(e){} }
+function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?30000:240000); }); }
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
-  ['scoreboard','matches','lab','bracket','tree','ratings','parlay','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
+  ['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','staking','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
   if(b.dataset.tab==='scoreboard')renderScoreboard();
+  if(b.dataset.tab==='tracker')renderTracker();
   if(b.dataset.tab==='ratings')renderRatings();
   if(b.dataset.tab==='lab')renderLab();
   if(b.dataset.tab==='bracket')renderBracket();
