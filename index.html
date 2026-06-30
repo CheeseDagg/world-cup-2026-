@@ -172,6 +172,47 @@
   .method code{background:var(--pitch2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12px;color:var(--gold)}
   .method .warn{color:var(--neg)}
 
+  /* interactive bracket */
+  .br-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .champ-banner{display:flex;align-items:center;gap:10px;justify-content:center;
+    padding:13px 16px;margin-bottom:14px;border:1px solid var(--line);border-radius:12px;
+    background:linear-gradient(90deg,rgba(232,184,75,.13),rgba(232,184,75,.02));font-size:15px}
+  .champ-banner.dim{color:var(--mut);background:none;font-size:12.5px;font-weight:400}
+  .champ-banner b{color:var(--gold)}
+  .br-scroll{overflow-x:auto;overflow-y:hidden;padding:2px 2px 12px;-webkit-overflow-scrolling:touch}
+  .bracket{position:relative;display:flex;gap:30px;min-width:max-content;align-items:stretch}
+  .br-conn{position:absolute;top:0;left:0;z-index:0}
+  .br-conn path{fill:none;stroke:var(--line);stroke-width:1.5}
+  .bcol{flex:0 0 152px;display:flex;flex-direction:column;position:relative;z-index:1}
+  .bcol-h{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut2);
+    font-weight:800;text-align:center;padding-bottom:9px}
+  .bcol-body{flex:1;display:flex;flex-direction:column}
+  .bmatch{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .bcard{width:100%;background:var(--card);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .bcard.done{border-color:var(--gold-dim)}
+  .bteam{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer;
+    border-top:1px solid var(--line);transition:background .12s}
+  .bteam:first-child{border-top:0}
+  .bteam:hover{background:var(--card2)}
+  .bteam.win{background:linear-gradient(90deg,rgba(232,184,75,.17),transparent)}
+  .bteam.win .bt-name{color:var(--gold);font-weight:700}
+  .bteam.out{opacity:.5}
+  .bteam.out .bt-name{text-decoration:line-through;color:var(--mut2)}
+  .bteam.tbd,.bteam.locked{cursor:default}
+  .bteam.tbd:hover,.bteam.locked:hover{background:none}
+  .bteam.locked:hover{background:none}
+  .bt-ab{width:30px;font-weight:800;font-size:11px;color:var(--ink);flex:none}
+  .bt-name{flex:1;font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bt-adv{font-size:10px;color:var(--mut);min-width:26px;text-align:right;flex:none}
+  .bteam.win .bt-adv{color:var(--gold-dim)}
+  .bt-tick{font-size:8.5px;color:var(--pos);margin-left:4px;letter-spacing:.04em}
+  .tk-path{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:2px}
+  .tk-step{display:flex;align-items:center;gap:8px;padding:7px 11px;border-top:1px solid var(--line);font-size:12.5px}
+  .tk-step:first-child{border-top:0}
+  .tk-rd{flex:0 0 88px;font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut2);font-weight:700}
+  .tk-opp{flex:1;color:var(--ink)}
+  .tk-p{font-weight:800;color:var(--gold-dim);font-variant-numeric:tabular-nums;min-width:42px;text-align:right}
+
   .hide{display:none}
   footer{margin-top:30px;font-size:10.5px;color:var(--mut2);letter-spacing:.05em;text-align:center;line-height:1.7}
 </style>
@@ -195,6 +236,7 @@
     <button class="on" data-tab="matches">Matches</button>
     <button data-tab="lab">Matchup Lab</button>
     <button data-tab="bracket">Title Odds</button>
+    <button data-tab="tree">Bracket</button>
     <button data-tab="ratings">Ratings</button>
     <button data-tab="parlay">Parlay</button>
     <button data-tab="calibrate">Calibrate</button>
@@ -204,6 +246,7 @@
   <section id="matches"></section>
   <section id="lab" class="hide"></section>
   <section id="bracket" class="hide"></section>
+  <section id="tree" class="hide"></section>
   <section id="ratings" class="hide"></section>
   <section id="parlay" class="hide"></section>
   <section id="calibrate" class="hide"></section>
@@ -291,6 +334,25 @@
       and the <b>Outright value</b> panel turns the sim into a bet — pick a team and a futures market, enter your book's
       price, and read EV plus the Kelly stake straight off the simulated probability. The run is cached, so the numbers
       hold still as you move between tabs; hit <b>re-run</b> to redraw.
+
+      <h3>Interactive bracket</h3>
+      The <b>Bracket</b> tab is the same verified draw as a clickable tree. <b>Tap a team</b> to send them through and the
+      pick flows forward; change an earlier result and everything downstream that depended on it clears automatically.
+      Every tie with both teams known shows the model's <b>to-advance %</b> on each side, so you can see the lean while you
+      build a path — and <b>★ model favourites</b> autofills the chalk pick at every node (it lands on Argentina), which is
+      the single most-likely path, not a probability-weighted one. Use it to sanity-check a futures ticket: pencil in the
+      bracket you're betting and see which heavy favourites have to fall for it to land.
+
+      <h3>Futures ticket — all routes vs the gauntlet</h3>
+      The <b>Futures ticket</b> panel prices an outright the right way and shows the path in the same place. Pick a team,
+      a market (win it / reach a given round) and your price: the headline probability and EV use the <b>all-routes</b>
+      number from the simulation — the bet pays whoever they beat, so that, not any single path, is the correct price.
+      Below it, the <b>gauntlet</b> lists the specific opponents they'd have to get through (your penciled bracket where
+      you've drawn it, the model's favourite elsewhere) with the to-advance % at each step and the toughest one flagged.
+      The product of those steps — "clearing this exact gauntlet" — is almost always <i>lower</i> than the all-routes
+      number, and that gap is the point: a team also wins the trophy when its rivals knock each other out before they ever
+      meet, so its real title equity beats the odds of running the murderers' row of top seeds in sequence. Read the
+      all-routes figure as the price and the gauntlet as the texture of how the run actually has to go.
 
       <h3>Defence &amp; possession columns</h3>
       <b>GA/90</b> (goals allowed per 90) and <b>Poss%</b> come straight from FBref's squad
@@ -1092,13 +1154,171 @@ function renderBracket(){
   setTimeout(()=>{ _bracketRows=runMonteCarlo(MC_N); paintBracket(_bracketRows); }, 30);  // defer so the loading state paints
 }
 
+/* ---------- interactive bracket ---------- */
+// match tree in vertical-display order; r0 slots are fixed teams (CAN & BRA already through), later slots reference feeder match ids
+const BR=[
+  {id:'m74',r:0,a:'GER',b:'PAR'},{id:'m77',r:0,a:'FRA',b:'SWE'},
+  {id:'m73',r:0,a:'RSA',b:'CAN',lock:'CAN'},{id:'m75',r:0,a:'NED',b:'MAR'},
+  {id:'m83',r:0,a:'POR',b:'CRO'},{id:'m84',r:0,a:'ESP',b:'AUT'},
+  {id:'m81',r:0,a:'USA',b:'BIH'},{id:'m82',r:0,a:'BEL',b:'SEN'},
+  {id:'m76',r:0,a:'BRA',b:'JPN',lock:'BRA'},{id:'m78',r:0,a:'CIV',b:'NOR'},
+  {id:'m79',r:0,a:'MEX',b:'ECU'},{id:'m80',r:0,a:'ENG',b:'COD'},
+  {id:'m86',r:0,a:'ARG',b:'CPV'},{id:'m88',r:0,a:'AUS',b:'EGY'},
+  {id:'m85',r:0,a:'SUI',b:'DZA'},{id:'m87',r:0,a:'COL',b:'GHA'},
+  {id:'m89',r:1,a:'m74',b:'m77'},{id:'m90',r:1,a:'m73',b:'m75'},
+  {id:'m93',r:1,a:'m83',b:'m84'},{id:'m94',r:1,a:'m81',b:'m82'},
+  {id:'m91',r:1,a:'m76',b:'m78'},{id:'m92',r:1,a:'m79',b:'m80'},
+  {id:'m95',r:1,a:'m86',b:'m88'},{id:'m96',r:1,a:'m85',b:'m87'},
+  {id:'m97',r:2,a:'m89',b:'m90'},{id:'m98',r:2,a:'m93',b:'m94'},
+  {id:'m99',r:2,a:'m91',b:'m92'},{id:'m100',r:2,a:'m95',b:'m96'},
+  {id:'m101',r:3,a:'m97',b:'m98'},{id:'m102',r:3,a:'m99',b:'m100'},
+  {id:'mF',r:4,a:'m101',b:'m102'}
+];
+const BRX={}; BR.forEach(m=>BRX[m.id]=m);
+let treePicks={};
+// futures-ticket scaffolding
+const PARENT={}; BR.forEach(m=>{ if(m.r>=1){ PARENT[m.a]=m.id; PARENT[m.b]=m.id; } });
+const TEAM_R32={}; BR.filter(m=>m.r===0).forEach(m=>{ TEAM_R32[m.a]=m.id; TEAM_R32[m.b]=m.id; });
+const RD_NAME=['Round of 32','Round of 16','Quarter-final','Semi-final','Final'];
+const TK_LBL={champ:'To win the World Cup',fin:'To reach the final',sf:'To reach the semis',qf:'To reach the quarters',r16:'To reach the R16'};
+const TK_DEPTH={r16:0,qf:1,sf:2,fin:3,champ:4};
+const TK_MCKEY={r16:'r16',qf:'qf',sf:'sf',fin:'fin',champ:'champ'};
+const ELIM=['RSA','JPN'];   // lost their locked R32 tie
+let tkTeam='',tkMkt='champ',tkPrice='';
+function projWinner(id){     // most-likely team to emerge from a subtree, honouring picks already made
+  if(treePicks[id]) return treePicks[id];
+  const m=BRX[id];
+  const a=(typeof m.a==='string'&&T[m.a])?m.a:projWinner(m.a);
+  const b=(typeof m.b==='string'&&T[m.b])?m.b:projWinner(m.b);
+  return modelMatch(a,b).advH>=0.5?a:b;
+}
+function ticketPath(X,depth){ // the games X must win to hit the market; opponents follow picks, else chalk
+  const steps=[]; const r32=TEAM_R32[X], m32=BRX[r32];
+  const opp32=m32.a===X?m32.b:m32.a, done32=(m32.lock===X);
+  steps.push({label:RD_NAME[0],opp:opp32,p:done32?1:modelMatch(X,opp32).advH,done:done32});
+  let child=r32, node=PARENT[r32];
+  while(node && BRX[node].r<=depth){
+    const m=BRX[node], sib=(m.a===child?m.b:m.a), opp=projWinner(sib);
+    steps.push({label:RD_NAME[m.r],opp,p:modelMatch(X,opp).advH,done:false});
+    child=node; node=PARENT[node];
+  }
+  return steps;
+}
+function computeTicket(){
+  const out=document.getElementById('tkOut'); if(!out)return;
+  if(!tkTeam){ out.innerHTML='<span class="note">Pick a team above to see the route they must travel and price it. Example: Argentina to win it all.</span>'; return; }
+  if(!_bracketRows)_bracketRows=runMonteCarlo(MC_N);
+  const steps=ticketPath(tkTeam,TK_DEPTH[tkMkt]);
+  const row=_bracketRows.find(r=>r.ab===tkTeam), mcP=row?row[TK_MCKEY[tkMkt]]:0;
+  let chalk=1; steps.forEach(s=>chalk*=s.p);
+  let tough=null; steps.forEach(s=>{ if(!s.done&&(!tough||s.p<tough.p))tough=s; });
+  const raw=(tkPrice||'').trim().replace('+','');
+  let ev='';
+  if(raw!==''&&!isNaN(parseFloat(raw))){
+    if(mcP<=0) ev=' · <span style="color:var(--mut2)">model 0% — pass</span>';
+    else { const d=amToDec(parseFloat(raw)),e=(mcP*d-1)*100,f=(mcP*d-1)/(d-1);
+      ev = f>0 ? ' · EV <b style="color:var(--pos)">+'+e.toFixed(1)+'%</b> · ½-Kelly <b>'+(f*50).toFixed(1)+'%</b>'
+               : ' · EV <b style="color:var(--neg)">'+e.toFixed(1)+'%</b> · <span style="color:var(--mut2)">no edge</span>'; }
+  } else ev = mcP>0?' · fair '+fairAm(mcP):'';
+  const head='<div style="font-size:13px;margin-bottom:9px"><b style="color:var(--gold)">'+T[tkTeam].name+'</b> — '+TK_LBL[tkMkt].toLowerCase()+': model <b>'+(mcP*100).toFixed(1)+'%</b> (all routes)'+ev+'</div>';
+  let rows=''; steps.forEach(s=>{
+    const tag=s.done?'<span class="bt-tick">✓ won</span>':(s===tough?'<span style="color:var(--neg);font-size:10px;margin-left:7px">⚠ toughest</span>':'');
+    rows+='<div class="tk-step"><span class="tk-rd">'+s.label+'</span><span class="tk-opp">beat '+T[s.opp].name+tag+'</span><span class="tk-p">'+(s.done?'done':Math.round(s.p*100)+'%')+'</span></div>';
+  });
+  let cmp;
+  if(mcP>chalk+0.01) cmp='is higher because it counts every route to the prize, not just this chalk path — '+T[tkTeam].name+' also gets through when rivals knock each other out first.';
+  else if(mcP<chalk-0.01) cmp='is lower because this chalk path runs through the strongest projected opponents; weaker draws are individually less likely, so the average route is tougher.';
+  else cmp='matches this path closely — it is roughly the model\'s central case.';
+  const note='<div class="note" style="margin-top:9px">Clearing this exact gauntlet (these opponents, at full strength): <b>'+(chalk*100).toFixed(1)+'%</b>. The all-routes '+(mcP*100).toFixed(0)+'% '+cmp+'</div>';
+  out.innerHTML=head+'<div class="tk-path">'+rows+'</div>'+note;
+}
+function treeLocks(){ const o={}; BR.forEach(m=>{ if(m.lock)o[m.id]=m.lock; }); return o; }
+function tOcc(id){ const m=BRX[id]; const res=r=>(typeof r==='string'&&T[r])?r:(treePicks[r]||null); return [res(m.a),res(m.b)]; }
+function tNormalize(){               // keep locks, then clear any downstream pick whose winner is no longer in the tie
+  Object.assign(treePicks, treeLocks());
+  for(let r=1;r<=4;r++) BR.filter(m=>m.r===r).forEach(m=>{ const [a,b]=tOcc(m.id);
+    if(treePicks[m.id]&&treePicks[m.id]!==a&&treePicks[m.id]!==b) delete treePicks[m.id]; });
+}
+function tModelFill(){                // fill every node with the model's to-advance favourite, round by round
+  treePicks=treeLocks();
+  for(let r=0;r<=4;r++) BR.filter(m=>m.r===r).forEach(m=>{ if(treePicks[m.id])return;
+    const [a,b]=tOcc(m.id); if(a&&b) treePicks[m.id]= modelMatch(a,b).advH>=0.5?a:b; });
+  renderTree();
+}
+function treeCard(m){
+  const [ta,tb]=tOcc(m.id), both=ta&&tb, md=both?modelMatch(ta,tb):null, win=treePicks[m.id];
+  function row(team,side,adv){
+    if(!team){ const [fx,fy]=tOcc(side==='a'?m.a:m.b); const lbl=(fx?fx:'?')+' / '+(fy?fy:'?');
+      return '<div class="bteam tbd"><span class="bt-ab">·</span><span class="bt-name" style="color:var(--mut2);font-size:11px">winner '+lbl+'</span><span class="bt-adv"></span></div>'; }
+    const isWin=win===team, isOut=win&&win!==team;
+    const cls=['bteam',isWin?'win':'',isOut?'out':'',m.lock?'locked':''].filter(Boolean).join(' ');
+    const click=(both&&!m.lock)?(' data-pick="'+m.id+'|'+team+'"'):'';
+    const tick=(m.lock===team)?'<span class="bt-tick">THRU</span>':'';
+    return '<div class="'+cls+'"'+click+'><span class="bt-ab">'+team+'</span><span class="bt-name">'+T[team].name+tick+'</span><span class="bt-adv">'+(both?Math.round(adv*100)+'%':'')+'</span></div>';
+  }
+  return '<div class="bmatch"><div class="bcard'+(win?' done':'')+'" data-m="'+m.id+'">'+row(ta,'a',md?md.advH:0)+row(tb,'b',md?md.advA:0)+'</div></div>';
+}
+function renderTree(){
+  tNormalize();
+  const sec=document.getElementById('tree');
+  const oldScroll=sec.querySelector('.br-scroll'); const sl=oldScroll?oldScroll.scrollLeft:0;
+  const rounds=[[0,'Round of 32'],[1,'Round of 16'],[2,'Quarter-finals'],[3,'Semi-finals'],[4,'Final']];
+  const cols=rounds.map(([r,lbl])=>'<div class="bcol"><div class="bcol-h">'+lbl+'</div><div class="bcol-body">'+BR.filter(m=>m.r===r).map(treeCard).join('')+'</div></div>').join('');
+  const champ=treePicks['mF'];
+  const banner=champ
+    ? '<div class="champ-banner">🏆 <b>'+T[champ].name+'</b> lifts the trophy — your call</div>'
+    : '<div class="champ-banner dim">Click a team to send them through; fill it out, or hit “model favourites” for the chalk path.</div>';
+  const alive=BR.filter(m=>m.r===0).flatMap(m=>[m.a,m.b]).filter(t=>!ELIM.includes(t)).sort((a,b)=>T[b].elo-T[a].elo);
+  const ticket='<div class="panel"><h2>Futures ticket — what has to happen</h2>'
+    +'<p class="note">Pick a team you\'re backing and a market, then drop in your book\'s price. You get the model\'s <b>all-routes</b> probability and EV, plus the exact gauntlet they\'d have to run — opponents follow your bracket where you\'ve drawn it, the model\'s favourite everywhere else, with the toughest single hurdle flagged.</p>'
+    +'<div class="leg" style="border:none">'
+    +'<select id="tkTeam"><option value="">— pick a team —</option>'+alive.map(ab=>'<option value="'+ab+'"'+(ab===tkTeam?' selected':'')+'>'+T[ab].name+'</option>').join('')+'</select>'
+    +'<select id="tkMkt">'+Object.entries(TK_LBL).map(([k,l])=>'<option value="'+k+'"'+(k===tkMkt?' selected':'')+'>'+l+'</option>').join('')+'</select>'
+    +'<input id="tkPrice" class="lp" inputmode="numeric" placeholder="price" value="'+tkPrice+'" style="width:74px"></div>'
+    +'<div id="tkOut" style="margin-top:10px"></div></div>';
+  sec.innerHTML='<div class="panel"><h2>Interactive bracket</h2>'
+    +'<p class="note">The real, verified knockout draw. <b>Click any team</b> to advance them — winners flow forward and the model’s <b>to-advance %</b> sits on every live tie (Canada and Brazil are already through). Build your own path to the MetLife final, or autofill the model’s favourite at every node, then cross-check the full title prices on the <b>Title Odds</b> tab.</p>'
+    +'<div class="br-tools"><button class="btn" id="tModel">★ model favourites</button><button class="btn" id="tReset">↺ reset</button>'
+    +'<span class="note" style="align-self:center">scroll sideways to reach the final →</span></div></div>'
+    +banner+ticket
+    +'<div class="br-scroll"><div class="bracket"><svg class="br-conn" xmlns="http://www.w3.org/2000/svg"></svg>'+cols+'</div></div>';
+  const ns=sec.querySelector('.br-scroll'); if(ns)ns.scrollLeft=sl;
+  sec.querySelectorAll('.bteam[data-pick]').forEach(t=>t.addEventListener('click',()=>{
+    const p=t.dataset.pick.split('|'); treePicks[p[0]]=p[1]; renderTree(); }));
+  sec.querySelector('#tModel').onclick=tModelFill;
+  sec.querySelector('#tReset').onclick=()=>{ treePicks=treeLocks(); renderTree(); };
+  const tt=sec.querySelector('#tkTeam'),tm=sec.querySelector('#tkMkt'),tp=sec.querySelector('#tkPrice');
+  tt.onchange=()=>{ tkTeam=tt.value; computeTicket(); };
+  tm.onchange=()=>{ tkMkt=tm.value; computeTicket(); };
+  tp.oninput=()=>{ tkPrice=tp.value; computeTicket(); };
+  computeTicket();
+  requestAnimationFrame(drawConnectors);
+}
+function drawConnectors(){            // measure real card positions and draw orthogonal elbows feeder→child
+  const bracket=document.querySelector('#tree .bracket'); if(!bracket)return;
+  const svg=bracket.querySelector('.br-conn'); if(!svg)return;
+  const W=bracket.scrollWidth, H=bracket.scrollHeight, br=bracket.getBoundingClientRect();
+  svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width',W); svg.setAttribute('height',H);
+  let d='';
+  BR.filter(m=>m.r>=1).forEach(m=>{
+    const ch=bracket.querySelector('[data-m="'+m.id+'"]'); if(!ch)return; const cr=ch.getBoundingClientRect();
+    const cx=cr.left-br.left, cy=cr.top-br.top+cr.height/2;
+    [m.a,m.b].forEach(fr=>{ const fe=bracket.querySelector('[data-m="'+fr+'"]'); if(!fe)return; const rr=fe.getBoundingClientRect();
+      const fx=rr.right-br.left, fy=rr.top-br.top+rr.height/2, mx=(fx+cx)/2;
+      d+='<path d="M'+fx.toFixed(1)+' '+fy.toFixed(1)+' H'+mx.toFixed(1)+' V'+cy.toFixed(1)+' H'+cx.toFixed(1)+'"/>'; });
+  });
+  svg.innerHTML=d;
+}
+let _trsz; window.addEventListener('resize',()=>{ clearTimeout(_trsz); _trsz=setTimeout(()=>{ if(!document.getElementById('tree').classList.contains('hide'))drawConnectors(); },120); });
+
 /* ---------- tabs ---------- */
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
-  ['matches','lab','bracket','ratings','parlay','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
+  ['matches','lab','bracket','tree','ratings','parlay','calibrate','method'].forEach(id=>document.getElementById(id).classList.toggle('hide',id!==b.dataset.tab));
   if(b.dataset.tab==='ratings')renderRatings();
   if(b.dataset.tab==='lab')renderLab();
   if(b.dataset.tab==='bracket')renderBracket();
+  if(b.dataset.tab==='tree')renderTree();
   if(b.dataset.tab==='calibrate')renderCalibrate();
   if(b.dataset.tab==='parlay')renderParlay();
 }));
