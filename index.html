@@ -85,6 +85,16 @@
   .cont{display:flex;flex-wrap:wrap;gap:6px}
   .contchip{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:11.5px;color:var(--mut)} .contchip b{color:var(--ink)}
   .tup{color:var(--pos);font-weight:700} .tdn{color:var(--neg);font-weight:700}
+  .trkred{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:rgba(255,107,107,.09);border:1px solid var(--neg);border-radius:8px;padding:7px 11px;margin:2px 0 12px;font-size:12.5px}
+  .trkred .rc{color:var(--ink);font-weight:700}
+  .trkred .rcn{color:var(--mut2);font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;margin-left:auto}
+  .trkstats{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
+  .trkstats .lab{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-bottom:8px}
+  .trkstats .rcn{color:var(--mut3,#5a5a5a);letter-spacing:.02em}
+  .strow{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:3px 0;font-size:12.5px}
+  .strow .sh{text-align:right;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .strow .sa{text-align:left;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .strow .slab{color:var(--mut);font-size:11px;min-width:80px;text-align:center}
 
   /* bet builder */
   .bb-sel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
@@ -411,7 +421,19 @@
       to a coin-flip shootout). The <b>Tracker</b> tab is the dedicated live view: for a game in progress it
       lays out the full live model card — win/draw/win bar, each side's to-advance, the projected final score,
       the match over 2.5, and the most likely finals from the current state — all moving on each refresh, with
-      ▲▼ against the pre-match line. Two honest notes: the goal-rate side of the model (the attack/defence multipliers
+      ▲▼ against the pre-match line.
+
+      For live games the Tracker also pulls ESPN's match-detail (gamecast) feed — the same open, keyless host as
+      the scoreboard — for two things. First, <b>red cards</b>: a sending-off is the one game-flow event big enough
+      to swamp the pre-match rates, so it feeds the model — the down-a-man team's remaining goal rate is cut and the
+      opponent's raised (heuristic multipliers, ~0.70 / 1.30 per red, compounded and clamped). You'll see the model's
+      to-advance and projection jump the moment a red goes up. Second, <b>run-of-play stats</b> — shots, shots on
+      target, possession, corners — shown as context but deliberately kept <i>out</i> of the model; they're noisy and
+      laggy, so they inform your read without distorting the projection. Everything else about the run of play (a team
+      battering the door down without scoring, momentum, subs) the model still can't see — it reacts to goals, time,
+      and now red cards, not to the eye-test. Honest caveat: ESPN's stat field names aren't guaranteed stable, so if
+      the feed shifts, the stats panel degrades to blanks and the red-card read falls back to none rather than breaking.
+      Two honest notes on the ratings side: the goal-rate side of the model (the attack/defence multipliers
       that set how many goals a match produces) stays fixed from group-stage data — only the Elo strength input
       updates — and the live-updated ratings use the same validated model structure fed fresher numbers, not a
       separately re-validated system. The Elo replay is rebuilt from the baked-in baseline on every refresh, so
@@ -2204,10 +2226,15 @@ function clkMin(clk){
   const n=clk.match(/(\d+)/);                      // "63'" -> 63
   return n?parseInt(n[1],10):0;
 }
-function inPlayAdvance(hc,ac,hs,as,minute){
+// a red card shifts the remaining-goal rates: the down-a-man team scores less, the opponent more.
+// heuristic multipliers per red, compounded and clamped. no reds -> factors are 1 (no change).
+function redAdj(la,lb,rh,ra){ const RS=0.70, RO=1.30, cl=x=>Math.max(0.35,Math.min(2.2,x));
+  return [ la*cl(Math.pow(RS,rh)*Math.pow(RO,ra)), lb*cl(Math.pow(RS,ra)*Math.pow(RO,rh)) ]; }
+function inPlayAdvance(hc,ac,hs,as,minute,redH,redA){
   const mm=modelMatch(hc,ac);
   const frac=Math.min(Math.max((90-minute)/90,0),1);
-  const lar=mm.la*frac, lbr=mm.lb*frac, K=9; let pH=0,pD=0;
+  let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,redH||0,redA||0); lar=a[0]; lbr=a[1]; }
+  const K=9; let pH=0,pD=0;
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,lar)*poisP(j,lbr); const fh=hs+i,fa=as+j; if(fh>fa)pH+=p; else if(fh===fa)pD+=p; }
   return {live:pH+0.5*pD, pre:mm.advH};
 }
@@ -2241,11 +2268,12 @@ function renderScoreboard(){
     let foot='';
     if(done&&g.winnerName) foot='<div class="sbfoot"><span class="adv">✓ '+g.winnerName+' advance</span></div>';
     else if(g.hc&&g.ac&&T[g.hc]&&T[g.ac]){
-      if(live){ const min=clkMin(g.clk);
-        const ip=inPlayAdvance(g.hc,g.ac,parseInt(g.hs,10)||0,parseInt(g.as,10)||0,min);
+      if(live){ const min=clkMin(g.clk); const rh=(g.reds&&g.reds.h)||0, ra=(g.reds&&g.reds.a)||0;
+        const ip=inPlayAdvance(g.hc,g.ac,parseInt(g.hs,10)||0,parseInt(g.as,10)||0,min,rh,ra);
         const favH=ip.live>=0.5, fav=favH?g.home:g.away, fp=favH?ip.live:1-ip.live, pre=favH?ip.pre:1-ip.pre, d=(fp-pre)*100;
         const arr=Math.abs(d)<0.5?'':(d>0?' <span style="color:var(--pos)">▲'+Math.abs(d).toFixed(0)+'</span>':' <span style="color:var(--neg)">▼'+Math.abs(d).toFixed(0)+'</span>');
-        foot='<div class="sbfoot"><span class="mp">Live model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance'+arr+'</span></div>'; }
+        const rcm=(rh||ra)?' <span title="red card" style="color:var(--neg);font-weight:700">· 🟥'+(rh?' '+g.home:'')+(ra?' '+g.away:'')+'</span>':'';
+        foot='<div class="sbfoot"><span class="mp">Live model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance'+arr+rcm+'</span></div>'; }
       else { const mm=modelMatch(g.hc,g.ac); const fav=mm.advH>=0.5?g.home:g.away, fp=Math.max(mm.advH,mm.advA);
         foot='<div class="sbfoot"><span class="mp">Model: <b>'+fav+'</b> '+(fp*100).toFixed(0)+'% to advance</span></div>'; }
     }
@@ -2262,10 +2290,11 @@ function renderScoreboard(){
   sec.querySelectorAll('.sbday').forEach(p=>p.addEventListener('click',()=>{ sbDay=p.dataset.day; renderScoreboard(); }));
 }
 /* ---------- game tracker: full live model odds ---------- */
-function inPlayOdds(hc,ac,hs,as,minute){
+function inPlayOdds(hc,ac,hs,as,minute,redH,redA){
   const mm=modelMatch(hc,ac);
   const frac=Math.min(Math.max((90-minute)/90,0),1);
-  const lar=mm.la*frac, lbr=mm.lb*frac, K=10;
+  let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,redH||0,redA||0); lar=a[0]; lbr=a[1]; }
+  const K=10;
   let pH=0,pD=0,pA=0,pOver=0; const cont={};
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,lar)*poisP(j,lbr); const fh=hs+i, fa=as+j;
     if(fh>fa)pH+=p; else if(fh===fa)pD+=p; else pA+=p;
@@ -2285,16 +2314,26 @@ function trkDelta(now,pre){ const d=(now-pre)*100; if(Math.abs(d)<0.5)return '';
 function trackerPanel(g){
   if(!(g.hc&&g.ac&&T[g.hc]&&T[g.ac])) return '<div class="trk"><div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span></div><div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+g.hs+' – '+g.as+'</div><div class="tnm a">'+g.away+'</div></div><div class="sbnote" style="padding:6px">Model odds unavailable for this matchup.</div></div>';
   const min=clkMin(g.clk);
-  const hs=parseInt(g.hs,10)||0, as=parseInt(g.as,10)||0, o=inPlayOdds(g.hc,g.ac,hs,as,min);
+  const rh=(g.reds&&g.reds.h)||0, ra=(g.reds&&g.reds.a)||0;
+  const hs=parseInt(g.hs,10)||0, as=parseInt(g.as,10)||0, o=inPlayOdds(g.hc,g.ac,hs,as,min,rh,ra);
+  const redBanner=(rh||ra)?'<div class="trkred">'
+    +(rh?'<span class="rc">\uD83D\uDFE5 '+g.home+' \u2192 '+(11-rh)+' men'+((g.redMin&&g.redMin.h)?' ('+g.redMin.h+')':'')+'</span>':'')
+    +(ra?'<span class="rc">\uD83D\uDFE5 '+g.away+' \u2192 '+(11-ra)+' men'+((g.redMin&&g.redMin.a)?' ('+g.redMin.a+')':'')+'</span>':'')
+    +'<span class="rcn">model adjusted for the extra man</span></div>':'';
+  const st=g.stats, srow=(lab,key)=>{ const hv=(st&&st.h&&st.h[key]!=null)?st.h[key]:null, av=(st&&st.a&&st.a[key]!=null)?st.a[key]:null; return (hv==null&&av==null)?'':'<div class="strow"><span class="sh">'+(hv==null?'\u2014':hv)+'</span><span class="slab">'+lab+'</span><span class="sa">'+(av==null?'\u2014':av)+'</span></div>'; };
+  const statsBody=st?[srow('Possession','poss'),srow('Shots','shots'),srow('On target','sot'),srow('Corners','corners')].join(''):'';
+  const statsBlock=statsBody?'<div class="trkstats"><div class="lab">Run of play <span class="rcn">context \u00b7 not in the model</span></div>'+statsBody+'</div>':'';
   return '<div class="trk">'
-   +'<div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span></div>'
-   +'<div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+hs+' – '+as+'</div><div class="tnm a">'+g.away+'</div></div>'
+   +'<div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' \u00b7 '+g.clk:'')+'</span></div>'
+   +'<div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+hs+' \u2013 '+as+'</div><div class="tnm a">'+g.away+'</div></div>'
+   +redBanner
    +wpBar(o.pH,o.pD,o.pA,g.home,g.away)
    +'<div class="trkgrid">'
      +'<div class="trkbox"><div class="lab">To advance</div><div class="val">'+g.home+' '+Math.round(o.advH*100)+'%'+trkDelta(o.advH,o.preAdvH)+'</div><div class="sub">'+g.away+' '+Math.round(o.advA*100)+'%</div></div>'
-     +'<div class="trkbox"><div class="lab">Projected final</div><div class="val">'+o.projH.toFixed(1)+' – '+o.projA.toFixed(1)+'</div><div class="sub">match total over 2.5: '+Math.round(o.pOver*100)+'%</div></div>'
+     +'<div class="trkbox"><div class="lab">Projected final</div><div class="val">'+o.projH.toFixed(1)+' \u2013 '+o.projA.toFixed(1)+'</div><div class="sub">match total over 2.5: '+Math.round(o.pOver*100)+'%</div></div>'
    +'</div>'
    +'<div class="trkbox" style="background:transparent;border:0;padding:0"><div class="lab" style="margin-bottom:7px">Most likely final from here</div><div class="cont">'+o.top.map(t=>'<span class="contchip"><b>'+t[0]+'</b> '+Math.round(t[1]*100)+'%</span>').join('')+'</div></div>'
+   +statsBlock
    +'</div>';
 }
 function upcomingPanel(g){
@@ -2562,7 +2601,7 @@ async function syncLive(){
       const hc=mapTeam(H.team), ac=mapTeam(A.team), ms=Date.parse(ev.date)||0;
       const round=(c.altGameNote||'').replace(/^FIFA World Cup,\s*/i,'').trim();
       const clk=(c.status.displayClock||'').toString();
-      const g={ms,home:hName,away:aName,hc,ac,state:st.state,hs:H.score,as:A.score,clk,winnerName:null,round};
+      const g={ms,home:hName,away:aName,hc,ac,state:st.state,hs:H.score,as:A.score,clk,winnerName:null,round,id:ev.id};
       if(st.state==='post'&&st.completed){ const hw=H.winner===true, aw=A.winner===true;
         if(hw!==aw){ g.winnerName=hw?hName:aName;
           if(hc&&ac&&hc!==ac){ results[hc<ac?hc+'|'+ac:ac+'|'+hc]=hw?hc:ac;
@@ -2570,6 +2609,8 @@ async function syncLive(){
       else if(st.state==='in'){ LIVE.anyLive=true; stripLive.push({home:hName,away:aName,hs:H.score,as:A.score,clk:clk||'LIVE'}); }
       games.push(g);
     });
+    const prevEnrich={}; (LIVE.games||[]).forEach(g=>{ if(g.id&&(g.reds||g.stats))prevEnrich[g.id]={reds:g.reds,stats:g.stats,redMin:g.redMin}; });
+    games.forEach(g=>{ if(g.id&&prevEnrich[g.id]){ g.reds=prevEnrich[g.id].reds; g.stats=prevEnrich[g.id].stats; g.redMin=prevEnrich[g.id].redMin; } });
     games.sort((a,b)=>a.ms-b.ms); LIVE.games=games;
     const eloChanged=recomputeElo(games);
     if(eloChanged){ for(const k in _advCache)delete _advCache[k]; _bracketRows=null; }
@@ -2582,8 +2623,53 @@ async function syncLive(){
     if(at==='scoreboard') renderScoreboard();
     else if(at==='tracker') renderTracker();
     else if(applied>0||eloChanged) rerenderActive();
+    enrichLiveGames();
   }catch(e){ LIVE.state='fail'; refreshSB(); }
   updateLiveBadge();
+}
+/* ---------- ESPN match-detail (gamecast) enrichment: red cards + run-of-play stats ---------- */
+const SUMMARY_URL=id=>'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event='+id;
+function parseSummary(j){
+  if(!j||typeof j!=='object')return null;
+  const idToSide={};
+  try{ const comp=j.header&&j.header.competitions&&j.header.competitions[0];
+    ((comp&&comp.competitors)||[]).forEach(c=>{ if(c&&c.team&&c.team.id!=null&&c.homeAway) idToSide[String(c.team.id)]=c.homeAway==='home'?'h':'a'; });
+  }catch(e){}
+  const reds={h:0,a:0}, redMin={h:null,a:null};
+  const evs = Array.isArray(j.keyEvents)?j.keyEvents : (Array.isArray(j.commentary)?j.commentary : []);
+  evs.forEach(e=>{ try{
+    const tt=((e.type&&(e.type.text||e.type.name))||e.text||'').toString();
+    if(!/red/i.test(tt))return;                       // "Red Card" and "Yellow-Red Card" (2nd yellow)
+    let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
+    if(side==='h'||side==='a'){ reds[side]++; const cv=e.clock&&(e.clock.displayValue||e.clock.value); if(cv&&redMin[side]==null)redMin[side]=(''+cv).trim(); }
+  }catch(_){}});
+  const stats={h:null,a:null};
+  try{ const teams=j.boxscore&&j.boxscore.teams;
+    if(Array.isArray(teams))teams.forEach((t,i)=>{
+      let side=(t.team&&t.team.id!=null&&idToSide[String(t.team.id)])||(i===0?'h':i===1?'a':null);
+      if(side!=='h'&&side!=='a')return;
+      const map={}; ((t.statistics)||[]).forEach(s=>{ const k=(s.name||s.abbreviation||s.label||'').toString().toLowerCase(); if(k)map[k]=s.displayValue!=null?s.displayValue:s.value; });
+      const pick=(...ks)=>{ for(const k of ks){ const v=map[k.toLowerCase()]; if(v!=null&&v!=='')return v; } return null; };
+      stats[side]={ poss:pick('possessionpct','possession','possessionpercentage'), shots:pick('totalshots','shots'),
+        sot:pick('shotsontarget','ontargetshots','shotsongoal'), corners:pick('woncorners','corners','cornerkicks'),
+        fouls:pick('foulscommitted','fouls'), saves:pick('saves','goalkeepersaves') };
+    });
+  }catch(e){}
+  const hasStats=(stats.h&&Object.values(stats.h).some(v=>v!=null))||(stats.a&&Object.values(stats.a).some(v=>v!=null));
+  if(!hasStats&&reds.h===0&&reds.a===0&&!Object.keys(idToSide).length)return null;
+  return {reds,redMin,stats};
+}
+async function enrichLiveGames(){
+  if(typeof fetch!=='function')return;
+  const live=(LIVE.games||[]).filter(g=>g.state==='in'&&g.id);
+  if(!live.length)return; let changed=false;
+  await Promise.all(live.map(async g=>{
+    try{ const r=await fetch(SUMMARY_URL(g.id),{cache:'no-store'}); if(!r.ok)return;
+      const p=parseSummary(await r.json());
+      if(p){ g.reds=p.reds; g.redMin=p.redMin; g.stats=p.stats; changed=true; }
+    }catch(e){}
+  }));
+  if(changed) refreshSB();
 }
 function refreshSB(){ const t=curTab; try{ if(t==='scoreboard')renderScoreboard(); else if(t==='tracker')renderTracker(); }catch(e){} }
 function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?30000:240000); }); }
