@@ -346,6 +346,13 @@
   .corr td.diag{color:var(--mut2);background:rgba(255,255,255,0.02)}
   .hm td{width:44px;height:31px;text-align:center;font-size:11.5px;color:var(--ink);border:1px solid var(--pitch);cursor:default}
   .hm td.modal{outline:2px solid var(--gold);outline-offset:-2px;font-weight:800}
+  .ratfind{display:flex;align-items:center;gap:8px;margin:6px 0 4px;flex-wrap:wrap}
+  .ratfind label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2);font-weight:700}
+  .ratfind select{background:var(--card2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit}
+  .ratclear{background:transparent;border:1px solid var(--line);color:var(--mut);border-radius:7px;padding:5px 10px;font-size:11px;cursor:pointer}
+  .ratclear:hover{border-color:var(--gold-dim);color:var(--ink)}
+  .ratcap{margin-top:6px;font-size:13px;color:var(--mut);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px}
+  .ratcap b{color:var(--ink)}
   .hm th{color:var(--mut2);font-size:10px;font-weight:800;padding:3px 6px;text-align:center}
   .hm th.corner{font-size:8.5px;font-weight:700;text-align:right;white-space:nowrap;color:var(--mut2)}
 
@@ -1162,8 +1169,8 @@ function renderCalibrate(){
 }
 
 
-let sortKey='elo', sortDir=-1;
-function ratingsScatter(){
+let sortKey='elo', sortDir=-1, ratHi='';
+function ratingsScatter(hi){
   const ts=Object.entries(T).map(([ab,t])=>({ab,x:t.sotr,y:t.ga90,elo:t.elo})).filter(t=>t.x!=null&&t.y!=null&&t.elo!=null);
   const W=720,H=430,mL=50,mR=16,mT=24,mB=40,pW=W-mL-mR,pH=H-mT-mB;
   const xs=ts.map(t=>t.x),ys=ts.map(t=>t.y),es=ts.map(t=>t.elo);
@@ -1176,15 +1183,23 @@ function ratingsScatter(){
   const mx=med(xs),my=med(ys);
   g+='<line x1="'+X(mx)+'" y1="'+mT+'" x2="'+X(mx)+'" y2="'+(mT+pH)+'" stroke="var(--gold-dim)" stroke-dasharray="2 4" stroke-opacity="0.5"/>';
   g+='<line x1="'+mL+'" y1="'+Y(my)+'" x2="'+(mL+pW)+'" y2="'+Y(my)+'" stroke="var(--gold-dim)" stroke-dasharray="2 4" stroke-opacity="0.5"/>';
-  ts.sort((a,b)=>a.elo-b.elo).forEach(t=>{ const cx=X(t.x),cy=Y(t.y),a=(0.22+0.72*(t.elo-emin)/(emax-emin)).toFixed(2);
-    g+='<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="4.2" fill="rgba(232,184,75,'+a+')" stroke="var(--gold-dim)" stroke-width="0.6"/>'
-      +'<text x="'+(cx+5.5).toFixed(1)+'" y="'+(cy+3).toFixed(1)+'" font-size="8.5" fill="var(--mut)">'+t.ab+'</text>'; });
+  const hiT = hi?ts.find(t=>t.ab===hi):null;
+  ts.sort((a,b)=>a.elo-b.elo).forEach(t=>{ if(hiT&&t.ab===hi)return; const cx=X(t.x),cy=Y(t.y),a=(0.22+0.72*(t.elo-emin)/(emax-emin));
+    const fa=(hiT? a*0.28 : a).toFixed(2);
+    g+='<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="4.2" fill="rgba(232,184,75,'+fa+')" stroke="var(--gold-dim)" stroke-width="0.6" stroke-opacity="'+(hiT?'0.28':'1')+'"/>'
+      +(hiT?'':'<text x="'+(cx+5.5).toFixed(1)+'" y="'+(cy+3).toFixed(1)+'" font-size="8.5" fill="var(--mut)">'+t.ab+'</text>'); });
   g+='<text x="'+(mL+pW/2)+'" y="'+(H-3)+'" font-size="10" fill="var(--mut)" text-anchor="middle" font-weight="700">Shot dominance % (chance creation) →</text>';
   g+='<text transform="rotate(-90 13 '+(mT+pH/2)+')" x="13" y="'+(mT+pH/2)+'" font-size="10" fill="var(--mut)" text-anchor="middle" font-weight="700">← GA/90 (lower = stingier)</text>';
   g+='<text x="'+(mL+pW-6)+'" y="'+(mT+12)+'" font-size="9" fill="var(--gold)" text-anchor="end" opacity="0.75">elite — creates &amp; defends</text>';
   g+='<text x="'+(mL+6)+'" y="'+(mT+12)+'" font-size="9" fill="var(--mut2)" opacity="0.85">solid, fewer chances</text>';
   g+='<text x="'+(mL+pW-6)+'" y="'+(mT+pH-6)+'" font-size="9" fill="var(--mut2)" text-anchor="end" opacity="0.85">open, chance-heavy</text>';
   g+='<text x="'+(mL+6)+'" y="'+(mT+pH-6)+'" font-size="9" fill="var(--neg)" opacity="0.6">leaky &amp; quiet</text>';
+  if(hiT){ const cx=X(hiT.x),cy=Y(hiT.y);
+    g+='<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+cx.toFixed(1)+'" y2="'+(mT+pH)+'" stroke="#f0c24e" stroke-dasharray="3 3" stroke-opacity="0.75"/>';
+    g+='<line x1="'+cx.toFixed(1)+'" y1="'+cy.toFixed(1)+'" x2="'+mL+'" y2="'+cy.toFixed(1)+'" stroke="#f0c24e" stroke-dasharray="3 3" stroke-opacity="0.75"/>';
+    g+='<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="7.5" fill="rgba(240,194,78,1)" stroke="#fff" stroke-width="2"/>';
+    const rightSide=cx>mL+pW-70, lx=rightSide?cx-11:cx+11, anc=rightSide?'end':'start';
+    g+='<text x="'+lx.toFixed(1)+'" y="'+(cy-9).toFixed(1)+'" font-size="12" fill="#fff" font-weight="800" text-anchor="'+anc+'">'+hiT.ab+'</text>'; }
   return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">'+g+'</svg>';
 }
 function radarChart(a,b){
@@ -1264,13 +1279,20 @@ function renderRatings(){
     </tr>`;
   });
   html+=`</tbody></table>`;
+  const teamOpts=Object.entries(T).map(([ab,t])=>({ab,nm:t.name})).sort((a,b)=>a.nm.localeCompare(b.nm));
+  const finder='<div class="ratfind"><label>Find a team</label><select id="ratFind"><option value="">— all 48 teams —</option>'+teamOpts.map(o=>'<option value="'+o.ab+'"'+(o.ab===ratHi?' selected':'')+'>'+o.nm+'</option>').join('')+'</select>'+(ratHi?'<button class="ratclear" id="ratClear">clear ✕</button>':'')+'</div>';
+  let cap='';
+  if(ratHi&&T[ratHi]){ const t=T[ratHi], rk=Object.values(T).filter(x=>x.elo!=null&&(t.elo==null||x.elo>t.elo)).length+1;
+    cap='<div class="ratcap"><b>'+t.name+'</b> — shot dominance <b>'+(t.sotr!=null?t.sotr.toFixed(0)+'%':'—')+'</b>, GA/90 <b>'+(t.ga90!=null?t.ga90.toFixed(2):'—')+'</b>, Power <b>'+(t.elo??'—')+'</b> · rank #'+rk+' of 48</div>'; }
   const sec=document.getElementById('ratings');
-  sec.innerHTML='<div class="panel"><h2>The field at a glance</h2><p class="note">All 48 teams mapped by chance creation (shot dominance, across) against defensive solidity (GA/90, up — stingier is higher). Brighter gold means a higher Power rating. Top-right is the contender zone: sides that both create and prevent. Dashed lines mark the field medians.</p>'+ratingsScatter()+'</div>'+confRollup()+'<p class="note" style="margin:6px 0 12px"><b style="color:var(--ink)">Live-updating model:</b> Power is each team’s current World-Football-Elo rating. After every completed knockout game it shifts by the standard Elo formula — winner gains, loser loses, scaled by goal margin; a shootout counts as a draw — so <b style="color:var(--ink)">Δ live</b> shows the move from the pre-knockout baseline. Every prediction in the tool (title odds, matchup lab, scoreboard picks) re-derives from these updated numbers.</p><div class="btnrow" style="margin-bottom:10px"><button class="btn" id="ratCSV">⤓ export ratings CSV</button></div>'+html;
+  sec.innerHTML='<div class="panel"><h2>The field at a glance</h2><p class="note">All 48 teams mapped by chance creation (shot dominance, across) against defensive solidity (GA/90, up — stingier is higher). Brighter gold means a higher Power rating. Top-right is the contender zone: sides that both create and prevent. Dashed lines mark the field medians.</p>'+finder+ratingsScatter(ratHi)+cap+'</div>'+confRollup()+'<p class="note" style="margin:6px 0 12px"><b style="color:var(--ink)">Live-updating model:</b> Power is each team’s current World-Football-Elo rating. After every completed knockout game it shifts by the standard Elo formula — winner gains, loser loses, scaled by goal margin; a shootout counts as a draw — so <b style="color:var(--ink)">Δ live</b> shows the move from the pre-knockout baseline. Every prediction in the tool (title odds, matchup lab, scoreboard picks) re-derives from these updated numbers.</p><div class="btnrow" style="margin-bottom:10px"><button class="btn" id="ratCSV">⤓ export ratings CSV</button></div>'+html;
   sec.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
     const k=th.dataset.k;
     if(k===sortKey)sortDir*=-1; else {sortKey=k; sortDir=(k==='ab'||k==='grp'||k==='ga90')?1:-1;}
     renderRatings();
   }));
+  const rf=sec.querySelector('#ratFind'); if(rf)rf.addEventListener('change',()=>{ ratHi=rf.value; renderRatings(); });
+  const rclr=sec.querySelector('#ratClear'); if(rclr)rclr.addEventListener('click',()=>{ ratHi=''; renderRatings(); });
   const rcsv=sec.querySelector('#ratCSV'); if(rcsv)rcsv.onclick=()=>{
     const data=rows.map((r,i)=>[i+1,r.name,r.ab,CONF[r.ab]||'',r.grp||'',r.elo,r.ga90,r.poss,r.sotr,r.luck,nextMatch[r.ab]??'']);
     downloadCSV('wc2026_ratings.csv',['Rank','Team','Code','Confederation','Group','Power','GA90','Poss%','ShotDom%','Luck','NextWin%'],data); };
