@@ -2392,30 +2392,37 @@ function renderTracker(){
   }
 }
 /* ---------- bet builder: per-leg model probabilities + combined ---------- */
-function marketRows(hc,ac){
-  const mm=modelMatch(hc,ac), la=mm.la, lb=mm.lb, N=10, g=[];
+function marketRows(hc,ac,mktTotal){
+  const mm=modelMatch(hc,ac); let la=mm.la, lb=mm.lb; const anchored=(mktTotal>0);
+  if(anchored){ const sc=mktTotal/(la+lb); la*=sc; lb*=sc; }
+  const N=10, g=[];
   for(let i=0;i<N;i++){g[i]=[];for(let j=0;j<N;j++)g[i][j]=poisP(i,la)*poisP(j,lb);}
   const S=(f)=>{let s=0;for(let i=0;i<N;i++)for(let j=0;j<N;j++)if(f(i,j))s+=g[i][j];return s;};
   const E=(i,j)=>g[i][j], H=T[hc].name, A=T[ac].name;
+  const advH=anchored?(S((i,j)=>i>j)+0.5*S((i,j)=>i===j)):mm.advH, advA=anchored?(S((i,j)=>i<j)+0.5*S((i,j)=>i===j)):mm.advA;
+  const cells=[]; for(let i=0;i<N;i++)for(let j=0;j<N;j++)cells.push([i,j,g[i][j]]); cells.sort((a,b)=>b[2]-a[2]);
+  const exact=cells.slice(0,12).map(c=>[c[0]+'-'+c[1],c[2]]);
   return [
     ['Match result',[[H+' win',S((i,j)=>i>j)],['Draw',S((i,j)=>i===j)],[A+' win',S((i,j)=>i<j)]]],
-    ['To advance (incl. ET / pens)',[[H+' to advance',mm.advH],[A+' to advance',mm.advA]]],
+    ['To advance (incl. ET / pens)',[[H+' to advance',advH],[A+' to advance',advA]]],
     ['Double chance',[[H+' or draw',S((i,j)=>i>=j)],[H+' or '+A,S((i,j)=>i!==j)],['Draw or '+A,S((i,j)=>i<=j)]]],
     ['Total goals',[['Over 1.5',S((i,j)=>i+j>=2)],['Under 1.5',S((i,j)=>i+j<2)],['Over 2.5',S((i,j)=>i+j>=3)],['Under 2.5',S((i,j)=>i+j<3)],['Over 3.5',S((i,j)=>i+j>=4)],['Under 3.5',S((i,j)=>i+j<4)]]],
     ['Both teams to score',[['Yes',S((i,j)=>i>=1&&j>=1)],['No',S((i,j)=>i===0||j===0)]]],
     ['Clean sheet',[[H+' clean sheet',S((i,j)=>j===0)],[A+' clean sheet',S((i,j)=>i===0)]]],
     ['Winning margin',[[H+' by 1',S((i,j)=>i-j===1)],[H+' by 2+',S((i,j)=>i-j>=2)],[A+' by 1',S((i,j)=>j-i===1)],[A+' by 2+',S((i,j)=>j-i>=2)]]],
     ['Correct-score combos (regulation)',[[H+' 1-0 / 2-0 / 3-0',E(1,0)+E(2,0)+E(3,0)],[H+' 2-1 / 3-1 / 4-1',E(2,1)+E(3,1)+E(4,1)],[A+' 1-0 / 2-0 / 3-0',E(0,1)+E(0,2)+E(0,3)],[A+' 2-1 / 3-1 / 4-1',E(1,2)+E(1,3)+E(1,4)]]],
+    ['Exact score (regulation · most likely first · home score first)',exact],
   ];
 }
-const BB={hc:null,ac:null,legs:[],bookOdds:'',boost:0,_mkts:[]};
+const BB={hc:null,ac:null,legs:[],bookOdds:'',boost:0,marketTotal:'',_mkts:[]};
 function bbFixtures(){ const seen={},out=[]; (LIVE.games||[]).forEach(g=>{ if(g.hc&&g.ac&&T[g.hc]&&T[g.ac]){ const k=g.hc+'|'+g.ac; if(!seen[k]){seen[k]=1;out.push({hc:g.hc,ac:g.ac});} } }); return out.slice(0,12); }
 function renderBuilder(){
   const sec=document.getElementById('builder'); if(!sec)return;
   const teams=Object.entries(T).map(([c,t])=>({c,n:t.name})).sort((a,b)=>a.n.localeCompare(b.n));
   if(!BB.hc||!BB.ac||!T[BB.hc]||!T[BB.ac]){ const fx=bbFixtures(); if(fx.length){BB.hc=fx[0].hc;BB.ac=fx[0].ac;} else {BB.hc=teams[0].c;BB.ac=teams[1].c;} }
   const opt=(sel)=>teams.map(t=>'<option value="'+t.c+'"'+(t.c===sel?' selected':'')+'>'+t.n+'</option>').join('');
-  const rows=marketRows(BB.hc,BB.ac); BB._mkts=[];
+  const mm0=modelMatch(BB.hc,BB.ac), modelTot=mm0.la+mm0.lb, mtv=parseFloat(BB.marketTotal), anchored=!isNaN(mtv)&&mtv>0;
+  const rows=marketRows(BB.hc,BB.ac,anchored?mtv:0); BB._mkts=[];
   let mtbl='<table class="mkt"><tr><th>Market — '+T[BB.hc].name+' vs '+T[BB.ac].name+' · neutral</th><th style="text-align:right">Model</th><th style="text-align:right">Fair</th><th></th></tr>';
   rows.forEach(([cat,items])=>{ mtbl+='<tr><td class="cat" colspan="4">'+cat+'</td></tr>';
     items.forEach(([label,p])=>{ const idx=BB._mkts.length; BB._mkts.push({label,p});
@@ -2445,8 +2452,12 @@ function renderBuilder(){
     tick='<div class="sbnote" style="text-align:left;padding:14px 2px">Pick a matchup and tap <b style="color:var(--gold)">+ add</b> on any market to build a ticket. Each leg carries the model\'s probability; the ticket shows the combined number with the weakest leg flagged — and an EV check once you punch in your book\'s price.</div>';
   }
   sec.innerHTML='<p class="note" style="margin:2px 0 12px">Every market\'s true probability from the model, for any matchup — then stack legs and see the combined number, so you know how thin a leg (or a whole ticket) is <b style="color:var(--ink)">before</b> you place it.</p>'
-    +'<div class="bb-sel"><select id="bbHome">'+opt(BB.hc)+'</select><span style="color:var(--mut2)">vs</span><select id="bbAway">'+opt(BB.ac)+'</select></div>'+quick+mtbl+tick;
+    +'<div class="bb-sel"><select id="bbHome">'+opt(BB.hc)+'</select><span style="color:var(--mut2)">vs</span><select id="bbAway">'+opt(BB.ac)+'</select>'
+      +'<span style="color:var(--mut2);margin-left:6px">anchor to market total</span><input id="bbTotal" class="lp" inputmode="decimal" placeholder="'+modelTot.toFixed(1)+'" value="'+(BB.marketTotal||'')+'" style="width:52px;background:var(--pitch);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit">'
+      +(anchored?'<span style="font-size:11px;color:var(--gold)">rescaled from model\u2019s '+modelTot.toFixed(1)+'</span>':'<span style="font-size:11px;color:var(--mut2)">model expects '+modelTot.toFixed(1)+' \u2014 blank = use it</span>')
+      +'</div>'+quick+mtbl+tick;
   const hSel=document.getElementById('bbHome'), aSel=document.getElementById('bbAway');
+  const tot=document.getElementById('bbTotal'); if(tot)tot.addEventListener('change',()=>{ BB.marketTotal=tot.value.trim(); renderBuilder(); });
   if(hSel)hSel.addEventListener('change',()=>{BB.hc=hSel.value;renderBuilder();});
   if(aSel)aSel.addEventListener('change',()=>{BB.ac=aSel.value;renderBuilder();});
   sec.querySelectorAll('.bbqp').forEach(b=>b.addEventListener('click',()=>{BB.hc=b.dataset.h;BB.ac=b.dataset.a;renderBuilder();}));
