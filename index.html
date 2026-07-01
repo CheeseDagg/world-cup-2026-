@@ -120,13 +120,7 @@
     letter-spacing:.12em;text-transform:uppercase;font-size:12px;padding:11px 14px;cursor:pointer;
     border-bottom:2px solid transparent;margin-bottom:-1px}
   nav button.on{color:var(--ink);border-bottom-color:var(--gold)}
-  nav.navg{margin:16px 0 0}
-  nav.navs{margin:9px 0 18px;border-bottom:0;gap:5px}
-  nav.navs button{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 13px;
-    font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;color:var(--mut);
-    border-bottom:1px solid var(--line);margin-bottom:0}
-  nav.navs button:hover{border-color:var(--gold-dim);color:var(--ink)}
-  nav.navs button.on{background:var(--gold);border-color:var(--gold);color:#19130a}
+  nav.navg{margin:16px 0 18px}
   nav button:hover{color:var(--ink)}
 
   /* match grid */
@@ -333,7 +327,6 @@
   <div class="live" id="liveStrip"></div>
 
   <nav class="navg" id="navg"></nav>
-  <nav class="navs" id="navs"></nav>
 
   <section id="scoreboard"></section>
   <section id="tracker" class="hide"></section>
@@ -2389,11 +2382,9 @@ function showTab(tab){
 }
 function selectGroup(gi){ curGroup=gi; showTab(lastTab[gi]||GROUPS[gi][1][0]); }
 function buildNav(){
-  const g=document.getElementById('navg'), s=document.getElementById('navs'); if(!g||!s)return;
-  g.innerHTML=GROUPS.map((grp,i)=>'<button class="'+(i===curGroup?'on':'')+'" data-g="'+i+'">'+grp[0]+'</button>').join('');
-  s.innerHTML=GROUPS[curGroup][1].map(t=>'<button class="'+(t===curTab?'on':'')+'" data-t="'+t+'">'+TLABEL[t]+'</button>').join('');
-  g.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>selectGroup(+b.dataset.g)));
-  s.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.t)));
+  const g=document.getElementById('navg'); if(!g)return;
+  g.innerHTML=ALLTABS.map(t=>'<button class="'+(t===curTab?'on':'')+'" data-t="'+t+'">'+TLABEL[t]+'</button>').join('');
+  g.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.t)));
 }
 
 if(!applyHashBracket()) loadBracket();
