@@ -114,6 +114,46 @@
   .evpos{color:var(--pos);font-weight:800} .evneg{color:var(--neg);font-weight:800}
   .bbwarn{background:rgba(212,160,80,.1);border:1px solid var(--gold);border-radius:8px;padding:9px 11px;font-size:11.5px;color:var(--gold);margin-top:10px;line-height:1.5}
 
+  /* slate / coverage grid */
+  .slsum{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+  .slchip{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-width:90px}
+  .slchip .v{font-size:19px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .slchip .l{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-top:2px}
+  .slspof{background:rgba(255,107,107,.09);border:1px solid var(--neg);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink);margin-bottom:12px;line-height:1.55}
+  .slmx{background:rgba(212,160,80,.09);border:1px solid var(--gold);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink);margin-bottom:14px;line-height:1.55}
+  .slgrid{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px}
+  .slgrid th{font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut2);font-weight:700;padding:7px 6px;border-bottom:1px solid var(--line);text-align:center}
+  .slgrid th:first-child{text-align:left}
+  .slgrid td{padding:6px;border-bottom:1px solid var(--line);text-align:center}
+  .slgrid td:first-child{text-align:left;font-weight:700;color:var(--ink)}
+  .slcell{border-radius:6px;padding:4px 6px;font-size:11px;display:inline-block;min-width:42px;font-variant-numeric:tabular-nums}
+  .slcell.hit{background:rgba(74,222,128,.16);color:var(--pos);font-weight:700}
+  .slcell.miss{background:rgba(255,107,107,.16);color:var(--neg);font-weight:700}
+  .slcell.live{background:rgba(212,160,80,.16);color:var(--gold);font-weight:700}
+  .slcell.pending{background:var(--card2);color:var(--mut)}
+  .slcell .sc{display:block;font-size:9px;opacity:.85;font-weight:600}
+  .sldash{color:#4a4a4a}
+  .sltk{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .sltk-h{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .sltk-name{font-weight:800;color:var(--ink);font-size:14px}
+  .slbadge{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
+  .slbadge.alive,.slbadge.live{background:rgba(212,160,80,.16);color:var(--gold)}
+  .slbadge.won{background:rgba(74,222,128,.18);color:var(--pos)}
+  .slbadge.dead{background:rgba(255,107,107,.16);color:var(--neg)}
+  .slbadge.empty{background:var(--card2);color:var(--mut)}
+  .sltk-rm{margin-left:auto;background:transparent;border:0;color:var(--neg);font-size:11px;cursor:pointer}
+  .slleg{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:5px 0;font-size:12px}
+  .slleg select{background:var(--card2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 7px;font-size:12px;font-family:inherit}
+  .slleg .slp{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);margin-left:2px}
+  .slleg .slst{font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px}
+  .slleg .slx{background:transparent;border:0;color:var(--neg);cursor:pointer;font-size:12px;margin-left:auto}
+  .sltk-ctl{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:11.5px;color:var(--mut);margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+  .sltk-ctl select,.sltk-ctl input{background:var(--pitch);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 7px;font-size:12px;font-family:inherit}
+  .sltk-ctl input{width:50px}
+  .sltk-sum{margin-top:8px;font-size:13px;color:var(--ink)}
+  .slbtn{background:var(--card2);border:1px solid var(--gold-dim);color:var(--gold);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px}
+  .slbtn:hover{background:var(--card);border-color:var(--gold)}
+
   /* tabs */
   nav{display:flex;flex-wrap:wrap;gap:4px;margin:16px 0 18px;border-bottom:1px solid var(--line)}
   nav button{background:none;border:0;color:var(--mut);font:inherit;font-weight:700;
@@ -331,6 +371,7 @@
   <section id="scoreboard"></section>
   <section id="tracker" class="hide"></section>
   <section id="builder" class="hide"></section>
+  <section id="slate" class="hide"></section>
   <section id="matches" class="hide"></section>
   <section id="lab" class="hide"></section>
   <section id="bracket" class="hide"></section>
@@ -1215,8 +1256,8 @@ function renderRatings(){
 
 /* ---------- parlay builder ---------- */
 let parlayLegs=[{mi:0,market:'1x2',side:'h',price:''},{mi:1,market:'1x2',side:'h',price:''}];
-let parlayBoost='', parlayOvr='';
-const MK={'1x2':'Match result','ou':'O/U 2.5','btts':'BTTS'};
+let parlayBoost='', parlayOvr='', parlayBoostType='profit', parlayBonus='70', parlayStake='';
+const MK={'1x2':'Match result','dc':'Double chance','ou15':'O/U 1.5','ou':'O/U 2.5','ou35':'O/U 3.5','btts':'BTTS','cs':'Clean sheet','wm':'Win margin','xs':'Correct score','adv':'To advance'};
 const amer=d=> d>=2 ? '+'+Math.round((d-1)*100) : ''+Math.round(-100/(d-1));
 // all 14 upcoming R32 ties — parlay legs price off the model, so no feed line is needed
 const PARLAY_TIES=[
@@ -1225,32 +1266,62 @@ const PARLAY_TIES=[
   {h:'SUI',a:'DZA'},{h:'ARG',a:'CPV'},{h:'COL',a:'GHA'},{h:'AUS',a:'EGY'}
 ];
 function sidesFor(market){
-  if(market==='ou')return [['over','Over 2.5'],['under','Under 2.5']];
-  if(market==='btts')return [['by','BTTS Yes'],['bn','BTTS No']];
-  return [['h','home'],['d','Draw'],['a','away']];
+  switch(market){
+    case 'dc': return [['1x','home/draw'],['12','home/away'],['x2','draw/away']];
+    case 'ou15': return [['o15','Over 1.5'],['u15','Under 1.5']];
+    case 'ou': return [['over','Over 2.5'],['under','Under 2.5']];
+    case 'ou35': return [['o35','Over 3.5'],['u35','Under 3.5']];
+    case 'btts': return [['by','BTTS Yes'],['bn','BTTS No']];
+    case 'cs': return [['csh','home clean sheet'],['csa','away clean sheet']];
+    case 'wm': return [['h1','home by 1'],['h2','home by 2+'],['a1','away by 1'],['a2','away by 2+']];
+    case 'xs': return [['xh1','home 1-0/2-0/3-0'],['xh2','home 2-1/3-1/4-1'],['xa1','away 1-0/2-0/3-0'],['xa2','away 2-1/3-1/4-1']];
+    case 'adv': return [['advh','home to advance'],['adva','away to advance']];
+    default: return [['h','home'],['d','Draw'],['a','away']];
+  }
 }
 function sideLabel(l){
-  const m=PARLAY_TIES[l.mi];
-  if(l.market==='1x2')return l.side==='h'?m.h+' win':l.side==='a'?m.a+' win':'Draw';
-  if(l.market==='ou')return l.side==='over'?'Over 2.5':'Under 2.5';
-  if(l.market==='btts')return l.side==='by'?'BTTS Yes':'BTTS No';
-  return l.label||'manual';
+  const m=PARLAY_TIES[l.mi]||{h:'home',a:'away'}, H=m.h, A=m.a, s=l.side;
+  switch(l.market){
+    case '1x2': return s==='h'?H+' win':s==='a'?A+' win':'Draw';
+    case 'dc': return s==='1x'?H+' or draw':s==='12'?H+' or '+A:'draw or '+A;
+    case 'ou15': return s==='o15'?'Over 1.5':'Under 1.5';
+    case 'ou': return s==='over'?'Over 2.5':'Under 2.5';
+    case 'ou35': return s==='o35'?'Over 3.5':'Under 3.5';
+    case 'btts': return s==='by'?'BTTS Yes':'BTTS No';
+    case 'cs': return s==='csh'?H+' clean sheet':A+' clean sheet';
+    case 'wm': return s==='h1'?H+' by 1':s==='h2'?H+' by 2+':s==='a1'?A+' by 1':A+' by 2+';
+    case 'xs': return (s[1]==='h'?H:A)+' '+(s[2]==='1'?'1-0/2-0/3-0':'2-1/3-1/4-1');
+    case 'adv': return (s==='advh'?H:A)+' to advance';
+    default: return l.label||'manual';
+  }
 }
 function legLabel(l){ return l.market==='manual'?(l.label||'manual leg'):`${PARLAY_TIES[l.mi].h}–${PARLAY_TIES[l.mi].a} · ${sideLabel(l)}`; }
 function legMarginal(l){
   if(l.market==='manual'){ const p=parseFloat(l.prob); return isNaN(p)?null:p/100; }
   const m=PARLAY_TIES[l.mi]; if(!m)return null; const md=modelMatch(m.h,m.a);
-  return {h:md.ph,d:md.pd,a:md.pa,over:md.over,under:md.under,by:md.btts,bn:md.nobtts}[l.side];
+  if(l.market==='adv')return l.side==='advh'?md.advH:md.advA;
+  const G=poissonGrid(md.la,md.lb); let s=0;
+  for(let i=0;i<11;i++)for(let j=0;j<11;j++){ if(legSat(l.market,l.side,i,j))s+=G[i][j]; }
+  return s;
 }
 function legSat(market,side,i,j){
-  if(market==='ou')return side==='over'?i+j>=3:i+j<3;
-  if(market==='btts')return side==='by'?(i>=1&&j>=1):!(i>=1&&j>=1);
-  return side==='h'?i>j:side==='d'?i===j:i<j;
+  switch(market){
+    case 'dc': return side==='1x'?i>=j:side==='12'?i!==j:i<=j;
+    case 'ou15': return side==='o15'?i+j>=2:i+j<2;
+    case 'ou': return side==='over'?i+j>=3:i+j<3;
+    case 'ou35': return side==='o35'?i+j>=4:i+j<4;
+    case 'btts': return side==='by'?(i>=1&&j>=1):!(i>=1&&j>=1);
+    case 'cs': return side==='csh'?j===0:i===0;
+    case 'wm': return side==='h1'?i-j===1:side==='h2'?i-j>=2:side==='a1'?j-i===1:j-i>=2;
+    case 'xs': { const S={xh1:[[1,0],[2,0],[3,0]],xh2:[[2,1],[3,1],[4,1]],xa1:[[0,1],[0,2],[0,3]],xa2:[[1,2],[1,3],[1,4]]}[side]||[];
+      return S.some(pair=>pair[0]===i&&pair[1]===j); }
+    default: return side==='h'?i>j:side==='d'?i===j:i<j;
+  }
 }
 function poissonGrid(la,lb,K=11){ const M=[]; for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++)M[i][j]=poisP(i,la)*poisP(j,lb);} return M; }
 function parlayProbs(legs){
   const groups={}, manual=[];
-  legs.forEach(l=>{ if(l.market==='manual')manual.push(l); else (groups[l.mi]=groups[l.mi]||[]).push(l); });
+  legs.forEach(l=>{ if(l.market==='manual'||l.market==='adv')manual.push(l); else (groups[l.mi]=groups[l.mi]||[]).push(l); });
   let pCorr=1,pNaive=1,valid=true;
   Object.keys(groups).forEach(mi=>{
     const gl=groups[mi], m=PARLAY_TIES[mi], md=modelMatch(m.h,m.a), G=poissonGrid(md.la,md.lb);
@@ -1271,7 +1342,7 @@ function legRow(l,idx){
       <span class="x" title="remove">✕</span></div>`;
   }
   const matchOpts=PARLAY_TIES.map((mm,i)=>`<option value="${i}" ${i===l.mi?'selected':''}>${mm.h}–${mm.a}</option>`).join('');
-  const mktOpts=['1x2','ou','btts'].map(k=>`<option value="${k}" ${k===l.market?'selected':''}>${MK[k]}</option>`).join('');
+  const mktOpts=['1x2','dc','ou15','ou','ou35','btts','cs','wm','xs','adv'].map(k=>`<option value="${k}" ${k===l.market?'selected':''}>${MK[k]}</option>`).join('');
   const sideOpts=sidesFor(l.market).map(([k])=>`<option value="${k}" ${k===l.side?'selected':''}>${sideLabel({...l,side:k})}</option>`).join('');
   const mp=legMarginal(l);
   return `<div class="leg" data-leg="${idx}">
@@ -1293,17 +1364,29 @@ function readLeg(row,idx){
 }
 function renderParlay(){
   const sec=document.getElementById('parlay');
-  let h=`<div class="panel"><h2>Parlay & boost calculator</h2>
-    <p class="note">Stack legs from the model — the match dropdown covers all 14 upcoming Round-of-32 ties, not just the
-    ones with a feed line — or add manual legs, enter the price your book gives each, and read the true combined edge.
-    Same-match legs are priced with <b>correlation</b> from the Poisson grid — not naive
-    multiplication — which is where same-game value hides. Add a <b>profit boost</b> to see exactly when it flips a
-    ticket +EV. Per-leg vig shows up as negative leg edge, and it compounds across the ticket.</p>
+  const paramHTML = parlayBoostType==='profit'
+    ? `<input class="lp" id="boost" inputmode="decimal" placeholder="0" value="${parlayBoost}" style="width:46px"><span class="note">% boost</span>`
+    : parlayBoostType==='nosweat'
+    ? `<span class="note">refund worth</span><input class="lp" id="bonusv" inputmode="decimal" placeholder="70" value="${parlayBonus}" style="width:44px"><span class="note">%</span>`
+    : `<span class="note" style="color:var(--mut2)">free bet — keep only the profit if it wins</span>`;
+  let h=`<div class="panel"><h2>Parlay &amp; boost calculator</h2>
+    <p class="note">Stack legs from the model across all 14 upcoming Round-of-32 ties — now with <b>ten markets</b> per leg
+    (result, double chance, three totals lines, BTTS, clean sheet, winning margin, the correct-score combos, and to-advance)
+    — or add manual legs, enter your book's price, and read the true combined edge. Same-match legs are priced with
+    <b>correlation</b> from the Poisson grid, not naive multiplication. The promo box handles a <b>profit boost</b>,
+    a <b>no-sweat bet</b> (stake back as a bonus if it loses), or a <b>bonus / free bet</b>, and a stake turns it into dollars.</p>
     <div id="legs">${parlayLegs.map(legRow).join('')}</div>
     <div class="btnrow"><button class="btn" id="addLeg">＋ add leg</button><button class="btn" id="addManual">＋ manual leg</button></div>
-    <div class="leg" style="border-top:1px dashed var(--line);margin-top:4px">
-      <span class="note">profit boost</span><input class="lp" id="boost" inputmode="decimal" placeholder="0" value="${parlayBoost}" style="width:50px"><span class="note">%</span>
-      <span class="note" style="margin-left:12px">override combined price</span><input class="lp" id="ovr" inputmode="numeric" placeholder="auto" value="${parlayOvr}" style="width:66px">
+    <div class="leg" style="border-top:1px dashed var(--line);margin-top:4px;flex-wrap:wrap;gap:8px 10px">
+      <span class="note">promo</span>
+      <select id="boostType">
+        <option value="profit" ${parlayBoostType==='profit'?'selected':''}>profit boost</option>
+        <option value="nosweat" ${parlayBoostType==='nosweat'?'selected':''}>no-sweat bet</option>
+        <option value="bonus" ${parlayBoostType==='bonus'?'selected':''}>bonus / free bet</option>
+      </select>
+      ${paramHTML}
+      <span class="note" style="margin-left:6px">stake $</span><input class="lp" id="stake" inputmode="decimal" placeholder="25" value="${parlayStake}" style="width:50px">
+      <span class="note" style="margin-left:6px">override price</span><input class="lp" id="ovr" inputmode="numeric" placeholder="auto" value="${parlayOvr}" style="width:58px">
     </div>
     <div id="presult"></div></div>`;
   sec.innerHTML=h;
@@ -1315,7 +1398,10 @@ function renderParlay(){
     row.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',()=>{ readLeg(row,idx); recomputeParlay(); }));
     const x=row.querySelector('.x'); if(x)x.onclick=()=>{ parlayLegs.splice(idx,1); if(!parlayLegs.length)parlayLegs.push({mi:0,market:'1x2',side:'h',price:''}); renderParlay(); };
   });
-  sec.querySelector('#boost').addEventListener('input',e=>{ parlayBoost=e.target.value; recomputeParlay(); });
+  const bt=sec.querySelector('#boostType'); if(bt)bt.onchange=e=>{ parlayBoostType=e.target.value; renderParlay(); };
+  const bi=sec.querySelector('#boost'); if(bi)bi.addEventListener('input',e=>{ parlayBoost=e.target.value; recomputeParlay(); });
+  const bv=sec.querySelector('#bonusv'); if(bv)bv.addEventListener('input',e=>{ parlayBonus=e.target.value; recomputeParlay(); });
+  const st=sec.querySelector('#stake'); if(st)st.addEventListener('input',e=>{ parlayStake=e.target.value; recomputeParlay(); });
   sec.querySelector('#ovr').addEventListener('input',e=>{ parlayOvr=e.target.value; recomputeParlay(); });
   recomputeParlay();
 }
@@ -1326,6 +1412,8 @@ function recomputeParlay(){
   const allPriced=prices.length>=1&&prices.every(d=>d!=null);
   const ovr=(()=>{const r=(parlayOvr||'').trim().replace('+','');return r!==''&&!isNaN(parseFloat(r))?amToDec(parseFloat(r)):null;})();
   const boost=(()=>{const r=(parlayBoost||'').trim();return r!==''&&!isNaN(parseFloat(r))?parseFloat(r)/100:0;})();
+  const bonusFrac=(()=>{const r=(parlayBonus||'').trim();return r!==''&&!isNaN(parseFloat(r))?Math.max(0,Math.min(1,parseFloat(r)/100)):0.7;})();
+  const stake=(()=>{const r=(parlayStake||'').trim();return r!==''&&!isNaN(parseFloat(r))&&parseFloat(r)>0?parseFloat(r):null;})();
   if(!valid||parlayLegs.length<1){ el.innerHTML=`<div class="empty">Add legs (and probabilities for manual legs) to evaluate.</div>`; return; }
   if(pCorr<=1e-9){ el.innerHTML=`<div class="warnbox"><b>Impossible ticket.</b> These legs can't all hit (model probability 0%) — likely contradictory same-match picks.</div>`; return; }
   const D = ovr!=null ? ovr : prices.reduce((a,d)=>a*(d||1),1);
@@ -1333,15 +1421,27 @@ function recomputeParlay(){
     <div class="metric"><div class="v">${(pCorr*100).toFixed(1)}%</div><div class="l">model probability</div></div>
     <div class="metric"><div class="v">${fairAm(pCorr)}</div><div class="l">fair price</div></div>`;
   if(allPriced||ovr!=null){
-    const ev=(pCorr*D-1)*100, Db=1+(D-1)*(1+boost), evb=(pCorr*Db-1)*100, q=1/D;
+    const q=1/D, edge=(pCorr-q)*100;
+    const evBase=pCorr*D-1;
+    let evPromo=evBase, promoLbl='EV', realized='', boostedProfit=D-1;
+    if(parlayBoostType==='profit'){ const Db=1+(D-1)*(1+boost); boostedProfit=Db-1; evPromo=pCorr*Db-1;
+      promoLbl=boost>0?`EV · +${(boost*100).toFixed(0)}% boost`:'EV';
+      if(boost>0)realized=`the +${(boost*100).toFixed(0)}% boost lifts your price to <b>${amer(Db)}</b> (implied ${((1/Db)*100).toFixed(1)}%)`; }
+    else if(parlayBoostType==='nosweat'){ evPromo=pCorr*(D-1)-(1-pCorr)*(1-bonusFrac);
+      promoLbl='EV · no-sweat'; realized=`lose and you get <b>${(bonusFrac*100).toFixed(0)}%</b> of the stake back as a bonus`; }
+    else { evPromo=pCorr*(D-1);
+      promoLbl='EV · bonus bet'; realized=`it's a free bet — only the profit (<b>${amer(D)}</b>) is cash if it wins`; }
     h+=`<div class="metric"><div class="v">${amer(D)}</div><div class="l">your price (${D.toFixed(2)})</div></div>
-      <div class="metric"><div class="v ${ev>0?'pos':ev<0?'neg':''}">${ev>=0?'+':''}${ev.toFixed(1)}%</div><div class="l">EV</div></div>`;
-    if(boost>0)h+=`<div class="metric"><div class="v ${evb>0?'pos':evb<0?'neg':''}">${evb>=0?'+':''}${evb.toFixed(1)}%</div><div class="l">EV +${(boost*100).toFixed(0)}% boost</div></div>`;
+      <div class="metric"><div class="v ${evBase>0?'pos':evBase<0?'neg':''}">${evBase>=0?'+':''}${(evBase*100).toFixed(1)}%</div><div class="l">EV · straight</div></div>
+      <div class="metric"><div class="v ${evPromo>0?'pos':evPromo<0?'neg':''}">${evPromo>=0?'+':''}${(evPromo*100).toFixed(1)}%</div><div class="l">${promoLbl}</div></div>`;
+    if(stake!=null)h+=`<div class="metric"><div class="v ${evPromo>0?'pos':evPromo<0?'neg':''}">${evPromo>=0?'+':'−'}$${Math.abs(evPromo*stake).toFixed(2)}</div><div class="l">EV on $${stake}</div></div>`;
     h+=`</div><p class="note">Your price implies <b>${(q*100).toFixed(1)}%</b>; model says <b>${(pCorr*100).toFixed(1)}%</b> → edge
-      <b style="color:${pCorr>q?'var(--pos)':'var(--neg)'}">${(pCorr-q)*100>=0?'+':''}${((pCorr-q)*100).toFixed(1)} pts</b>.`;
-    if(boost>0){ const qb=1/Db; h+=` Boost lifts the realized price to ${amer(Db)} (implied ${(qb*100).toFixed(1)}%)${evb>0&&ev<=0?' — <b style="color:var(--pos)">flips the ticket +EV.</b>':evb>ev?', +'+(evb-ev).toFixed(1)+' pts EV.':'.'}`; }
+      <b style="color:${edge>=0?'var(--pos)':'var(--neg)'}">${edge>=0?'+':''}${edge.toFixed(1)} pts</b>.`;
+    if(realized) h+=` ${realized.charAt(0).toUpperCase()+realized.slice(1)}.`;
+    if(parlayBoostType==='profit'&&boost>0&&evPromo>0&&evBase<=0) h+=` <b style="color:var(--pos)">The boost flips it +EV.</b>`;
+    if(stake!=null){ const winProfit=(parlayBoostType==='profit'?boostedProfit:(D-1))*stake; h+=` Win pays <b>$${winProfit.toFixed(2)}</b> profit${parlayBoostType==='bonus'?'':` ($${(winProfit+stake).toFixed(2)} back)`}.`; }
     h+=`</p>`;
-  } else { h+=`</div><p class="note">Enter every leg's price to see EV and vig.</p>`; }
+  } else { h+=`</div><p class="note">Enter every leg's price (or an override) to see EV, vig, and the promo effect.</p>`; }
   if(hasCorr){ const corr=pNaive>0?pCorr/pNaive:0;
     h+=`<div class="warnbox"><b>Same-game correlation applied.</b> Naive multiplication gives ${(pNaive*100).toFixed(1)}%;
       the Poisson grid puts the true joint at <b>${(pCorr*100).toFixed(1)}%</b> (${corr>=1?'+':''}${((corr-1)*100).toFixed(0)}% vs independence).
@@ -2287,6 +2387,120 @@ function renderBuilder(){
   if(bk)bk.addEventListener('change',()=>{BB.bookOdds=bk.value.trim();renderBuilder();});
   if(bo)bo.addEventListener('change',()=>{BB.boost=+bo.value;renderBuilder();});
 }
+/* ---------- slate: today's correct-score tickets + coverage grid ---------- */
+let slateTickets=[
+  {n:'Ticket 1',bt:'profit',b:100,stake:'25',odds:'+6021',legs:[{h:'CIV',a:'NOR',side:'a',bkt:'nil'},{h:'FRA',a:'SWE',side:'h',bkt:'nil'},{h:'MEX',a:'ECU',side:'h',bkt:'nil'}]},
+  {n:'Ticket 2',bt:'profit',b:30,stake:'25',odds:'',legs:[{h:'CIV',a:'NOR',side:'a',bkt:'one'},{h:'FRA',a:'SWE',side:'h',bkt:'nil'},{h:'MEX',a:'ECU',side:'h',bkt:'nil'}]},
+  {n:'Ticket 3',bt:'profit',b:0,stake:'25',odds:'',legs:[{h:'CIV',a:'NOR',side:'h',bkt:'one'},{h:'FRA',a:'SWE',side:'h',bkt:'one'},{h:'MEX',a:'ECU',side:'h',bkt:'nil'}]},
+  {n:'Ticket 4',bt:'profit',b:0,stake:'25',odds:'',legs:[{h:'CIV',a:'NOR',side:'h',bkt:'nil'},{h:'FRA',a:'SWE',side:'h',bkt:'one'},{h:'MEX',a:'ECU',side:'h',bkt:'nil'}]},
+];
+const SLATE_BKT={nil:'1-0 / 2-0 / 3-0',one:'2-1 / 3-1 / 4-1'};
+function slTeam(l){ return l.side==='h'?l.h:l.a; }
+function slLegLabel(l){ return (T[slTeam(l)]?T[slTeam(l)].name:slTeam(l))+' '+SLATE_BKT[l.bkt]; }
+function slKey(l){ return l.h+'|'+l.a+'|'+l.side+'|'+l.bkt; }
+function slGameKey(l){ return l.h+'|'+l.a; }
+function keyToLeg(k){ const p=k.split('|'); return {h:p[0],a:p[1],side:p[2],bkt:p[3]}; }
+function slLegP(l){ if(!T[l.h]||!T[l.a])return 0; const md=modelMatch(l.h,l.a), G=poissonGrid(md.la,md.lb);
+  const pairs=l.side==='h'?(l.bkt==='nil'?[[1,0],[2,0],[3,0]]:[[2,1],[3,1],[4,1]]):(l.bkt==='nil'?[[0,1],[0,2],[0,3]]:[[1,2],[1,3],[1,4]]);
+  let s=0; pairs.forEach(pr=>s+=G[pr[0]][pr[1]]); return s; }
+function slLegStatus(l){
+  const g=(LIVE.games||[]).find(x=>x.hc&&x.ac&&((x.hc===l.h&&x.ac===l.a)||(x.hc===l.a&&x.ac===l.h)));
+  if(!g||g.state==='pre')return {st:'pending'};
+  const bet=slTeam(l), hs=parseInt(g.hs,10), as=parseInt(g.as,10);
+  if(isNaN(hs)||isNaN(as))return {st:g.state==='in'?'live':'pending'};
+  const bg=(g.hc===bet)?hs:as, og=(g.hc===bet)?as:hs;
+  const hit=l.bkt==='nil'?(bg>=1&&bg<=3&&og===0):((bg===2||bg===3||bg===4)&&og===1);
+  if(g.state==='post')return {st:hit?'hit':'miss',score:bg+'\u2013'+og};
+  return {st:'live',score:bg+'\u2013'+og,onTrack:hit};
+}
+function slTicketP(tk){ return tk.legs.length?tk.legs.reduce((p,l)=>p*slLegP(l),1):0; }
+function slTicketStatus(tk){ if(!tk.legs.length)return 'empty'; let miss=false,allhit=true,live=false;
+  tk.legs.forEach(l=>{const s=slLegStatus(l); if(s.st==='miss')miss=true; if(s.st!=='hit')allhit=false; if(s.st==='live')live=true;});
+  return miss?'dead':allhit?'won':live?'live':'alive'; }
+function slEV(tk){ const p=slTicketP(tk), raw=(tk.odds||'').trim().replace('+',''); if(raw===''||isNaN(parseFloat(raw)))return null;
+  const d=amToDec(parseFloat(raw)); if(!d)return null; const b=(tk.b||0)/100;
+  let ev; if(tk.bt==='nosweat')ev=p*(d-1)-(1-p)*(1-0.7); else if(tk.bt==='bonus')ev=p*(d-1); else {const Db=1+(d-1)*(1+b); ev=p*Db-1;} return {p,d,ev}; }
+function slCoverage(){
+  const tks=slateTickets, N=tks.length, cnt={};
+  tks.forEach(tk=>{const seen={}; tk.legs.forEach(l=>{const k=slKey(l); if(!seen[k]){seen[k]=1;cnt[k]=(cnt[k]||0)+1;}});});
+  const spof=Object.keys(cnt).filter(k=>N>1&&cnt[k]===N);
+  const compat=(a,b)=>{ for(let x=0;x<a.legs.length;x++)for(let y=0;y<b.legs.length;y++){ if(slGameKey(a.legs[x])===slGameKey(b.legs[y])&&slKey(a.legs[x])!==slKey(b.legs[y]))return false; } return true; };
+  let maxWin=0; for(let m=1;m<(1<<N);m++){ const sub=[]; for(let i=0;i<N;i++)if(m>>i&1)sub.push(tks[i]); let ok=true;
+    for(let i=0;i<sub.length&&ok;i++)for(let j=i+1;j<sub.length&&ok;j++)if(!compat(sub[i],sub[j]))ok=false; if(ok)maxWin=Math.max(maxWin,sub.length); }
+  const probs=tks.map(slTicketP), exp=probs.reduce((a,b)=>a+b,0);
+  return {spof,maxWin,probs,exp,mutex:maxWin<=1&&N>1}; }
+function slGameOpts(cur){ const opts=[], seen={};
+  PARLAY_TIES.forEach(t=>{const k=t.h+'|'+t.a; seen[k]=1; opts.push([k,(T[t.h]?T[t.h].name:t.h)+'\u2013'+(T[t.a]?T[t.a].name:t.a)]);});
+  if(cur&&!seen[cur]){ const p=cur.split('|'); opts.unshift([cur,(T[p[0]]?T[p[0]].name:p[0])+'\u2013'+(T[p[1]]?T[p[1]].name:p[1])]); }
+  return opts.map(o=>'<option value="'+o[0]+'" '+(o[0]===cur?'selected':'')+'>'+o[1]+'</option>').join(''); }
+function slLegRow(ti,li,l){
+  const cur=l.h+'|'+l.a, st=slLegStatus(l), p=slLegP(l);
+  const sideOpts='<option value="h" '+(l.side==='h'?'selected':'')+'>'+(T[l.h]?T[l.h].name:l.h)+'</option><option value="a" '+(l.side==='a'?'selected':'')+'>'+(T[l.a]?T[l.a].name:l.a)+'</option>';
+  const bktOpts='<option value="nil" '+(l.bkt==='nil'?'selected':'')+'>to nil (1-0/2-0/3-0)</option><option value="one" '+(l.bkt==='one'?'selected':'')+'>win, concede 1 (2-1/3-1/4-1)</option>';
+  const stTxt=st.st==='hit'?'\u2713 hit '+(st.score||''):st.st==='miss'?'\u2717 miss '+(st.score||''):st.st==='live'?('\u25cf '+(st.score||'')+(st.onTrack?' \u2713':'')):'';
+  const cls=st.st==='hit'?'hit':st.st==='miss'?'miss':st.st==='live'?'live':'pending';
+  const stBg=cls==='hit'?'rgba(74,222,128,.16)':cls==='miss'?'rgba(255,107,107,.16)':cls==='live'?'rgba(212,160,80,.16)':'transparent';
+  const stCol=cls==='hit'?'var(--pos)':cls==='miss'?'var(--neg)':cls==='live'?'var(--gold)':'var(--mut)';
+  return '<div class="slleg"><select class="slG" data-tk="'+ti+'" data-li="'+li+'">'+slGameOpts(cur)+'</select>'
+    +'<select class="slSide" data-tk="'+ti+'" data-li="'+li+'">'+sideOpts+'</select>'
+    +'<select class="slBkt" data-tk="'+ti+'" data-li="'+li+'">'+bktOpts+'</select>'
+    +'<span class="slp">'+(p*100).toFixed(1)+'%</span>'
+    +(stTxt?'<span class="slst" style="background:'+stBg+';color:'+stCol+'">'+stTxt+'</span>':'')
+    +'<button class="slx" data-tk="'+ti+'" data-li="'+li+'" title="remove leg">\u2715</button></div>';
+}
+function renderSlate(){
+  const sec=document.getElementById('slate'); if(!sec)return;
+  const cov=slCoverage(), N=slateTickets.length;
+  const totalStake=slateTickets.reduce((s,tk)=>s+(parseFloat(tk.stake)||0),0);
+  const statuses=slateTickets.map(slTicketStatus);
+  const nAlive=statuses.filter(s=>s==='alive'||s==='live').length, nDead=statuses.filter(s=>s==='dead').length, nWon=statuses.filter(s=>s==='won').length;
+  let h='<p class="note" style="margin:2px 0 14px">Your correct-score parlays for the day, laid over each other. The <b>coverage grid</b> shows what each ticket needs and where they overlap \u2014 so a leg riding on every ticket (a single point of failure), or tickets that can\u2019t both win, are obvious at a glance. Seeded with today\u2019s four; edit freely and it works for any slate. Legs mark <span style="color:var(--pos)">\u2713 hit</span> / <span style="color:var(--neg)">\u2717 miss</span> / <span style="color:var(--gold)">\u25cf live</span> as results land.</p>';
+  h+='<div class="slsum">';
+  h+='<div class="slchip"><div class="v">'+N+'</div><div class="l">tickets</div></div>';
+  h+='<div class="slchip"><div class="v">$'+totalStake.toFixed(0)+'</div><div class="l">staked</div></div>';
+  h+='<div class="slchip"><div class="v">'+cov.exp.toFixed(2)+'</div><div class="l">exp. winners</div></div>';
+  if(cov.mutex)h+='<div class="slchip"><div class="v">'+(cov.exp*100).toFixed(1)+'%</div><div class="l">P(cash any)</div></div>';
+  h+='<div class="slchip"><div class="v">'+cov.maxWin+'</div><div class="l">max can win</div></div>';
+  if(nDead||nWon)h+='<div class="slchip"><div class="v">'+nWon+' / '+nAlive+' / '+nDead+'</div><div class="l">won / live / dead</div></div>';
+  h+='</div>';
+  if(cov.spof.length){ h+='<div class="slspof"><b>\u26a0 Single point of failure.</b> '+cov.spof.map(k=>slLegLabel(keyToLeg(k))).join(' and ')+' '+(cov.spof.length>1?'are':'is')+' in all '+N+' tickets \u2014 if '+(cov.spof.length>1?'either':'it')+' misses, the whole slate dies. Diversifying at least one ticket off '+(cov.spof.length>1?'them':'it')+' would let you survive that single result.</div>'; }
+  if(cov.mutex){ h+='<div class="slmx"><b>These tickets can produce at most one winner.</b> They diverge on the same game(s), so their winning outcomes are mutually exclusive \u2014 stacking them isn\u2019t covering more ground, it\u2019s taking mutually exclusive shots that all share the leg(s) above. Expected winners '+cov.exp.toFixed(2)+' is exactly your chance of cashing any single one.</div>'; }
+  const cols=[], seen={}; slateTickets.forEach(tk=>tk.legs.forEach(l=>{const gk=slGameKey(l); if(!seen[gk]){seen[gk]=1;cols.push({gk,h:l.h,a:l.a});}}));
+  if(cols.length){ h+='<table class="slgrid"><thead><tr><th>ticket</th>'+cols.map(c=>'<th>'+c.h+'\u2013'+c.a+'</th>').join('')+'</tr></thead><tbody>';
+    slateTickets.forEach((tk,ti)=>{ h+='<tr><td>'+tk.n+'</td>';
+      cols.forEach(c=>{ const l=tk.legs.find(x=>slGameKey(x)===c.gk);
+        if(!l){ h+='<td><span class="sldash">\u2014</span></td>'; }
+        else { const s=slLegStatus(l), cls=s.st==='hit'?'hit':s.st==='miss'?'miss':s.st==='live'?'live':'pending';
+          h+='<td><span class="slcell '+cls+'"><b>'+slTeam(l)+'</b> '+(l.bkt==='nil'?'nil':'+1')+(s.score?'<span class="sc">'+s.score+'</span>':'')+'</span></td>'; } });
+      h+='</tr>'; });
+    h+='</tbody></table>'; }
+  slateTickets.forEach((tk,ti)=>{ const p=slTicketP(tk), status=statuses[ti], ev=slEV(tk);
+    h+='<div class="sltk"><div class="sltk-h"><span class="sltk-name">'+tk.n+'</span><span class="slbadge '+status+'">'+status+'</span><button class="sltk-rm" data-tk="'+ti+'">remove</button></div>';
+    h+='<div class="sllegs">'+tk.legs.map((l,li)=>slLegRow(ti,li,l)).join('')+'</div>';
+    h+='<button class="btn slAddLeg" data-tk="'+ti+'" style="font-size:11px;padding:4px 10px;margin-top:4px">\uff0b leg</button>';
+    h+='<div class="sltk-ctl">promo <select class="slBt" data-tk="'+ti+'"><option value="profit" '+(tk.bt==='profit'?'selected':'')+'>profit boost</option><option value="nosweat" '+(tk.bt==='nosweat'?'selected':'')+'>no-sweat</option><option value="bonus" '+(tk.bt==='bonus'?'selected':'')+'>bonus bet</option></select>';
+    if(tk.bt==='profit')h+='<input class="slB" data-tk="'+ti+'" inputmode="decimal" placeholder="0" value="'+(tk.b||'')+'">% boost';
+    h+=' stake $<input class="slStake" data-tk="'+ti+'" inputmode="decimal" placeholder="25" value="'+(tk.stake||'')+'"> book odds <input class="slOdds" data-tk="'+ti+'" inputmode="numeric" placeholder="+6021" value="'+(tk.odds||'')+'"></div>';
+    h+='<div class="sltk-sum">combined model <b>'+(p*100).toFixed(2)+'%</b> \u00b7 fair <b>'+fairAm(p)+'</b>';
+    if(ev){ const pos=ev.ev>0; h+=' \u00b7 EV <span style="color:'+(pos?'var(--pos)':'var(--neg)')+';font-weight:700">'+(ev.ev>=0?'+':'')+(ev.ev*100).toFixed(1)+'%'+(tk.stake?' ('+(ev.ev>=0?'+':'\u2212')+'$'+Math.abs(ev.ev*(parseFloat(tk.stake)||0)).toFixed(2)+')':'')+'</span>'; }
+    h+='</div></div>';
+  });
+  h+='<button class="slbtn" id="slAddTk">\uff0b add ticket</button>';
+  sec.innerHTML=h;
+  const dflt=()=>{const t=PARLAY_TIES[0]||{h:Object.keys(T)[0],a:Object.keys(T)[1]};return {h:t.h,a:t.a,side:'h',bkt:'nil'};};
+  sec.querySelectorAll('.slG').forEach(s=>s.addEventListener('change',()=>{const p=s.value.split('|'),l=slateTickets[+s.dataset.tk].legs[+s.dataset.li]; l.h=p[0];l.a=p[1]; renderSlate();}));
+  sec.querySelectorAll('.slSide').forEach(s=>s.addEventListener('change',()=>{slateTickets[+s.dataset.tk].legs[+s.dataset.li].side=s.value; renderSlate();}));
+  sec.querySelectorAll('.slBkt').forEach(s=>s.addEventListener('change',()=>{slateTickets[+s.dataset.tk].legs[+s.dataset.li].bkt=s.value; renderSlate();}));
+  sec.querySelectorAll('.slx').forEach(b=>b.addEventListener('click',()=>{slateTickets[+b.dataset.tk].legs.splice(+b.dataset.li,1); renderSlate();}));
+  sec.querySelectorAll('.slAddLeg').forEach(b=>b.addEventListener('click',()=>{slateTickets[+b.dataset.tk].legs.push(dflt()); renderSlate();}));
+  sec.querySelectorAll('.sltk-rm').forEach(b=>b.addEventListener('click',()=>{slateTickets.splice(+b.dataset.tk,1); renderSlate();}));
+  sec.querySelectorAll('.slBt').forEach(s=>s.addEventListener('change',()=>{slateTickets[+s.dataset.tk].bt=s.value; renderSlate();}));
+  sec.querySelectorAll('.slB').forEach(i=>i.addEventListener('change',()=>{slateTickets[+i.dataset.tk].b=parseFloat(i.value)||0; renderSlate();}));
+  sec.querySelectorAll('.slStake').forEach(i=>i.addEventListener('change',()=>{slateTickets[+i.dataset.tk].stake=i.value; renderSlate();}));
+  sec.querySelectorAll('.slOdds').forEach(i=>i.addEventListener('change',()=>{slateTickets[+i.dataset.tk].odds=i.value; renderSlate();}));
+  const at=document.getElementById('slAddTk'); if(at)at.addEventListener('click',()=>{slateTickets.push({n:'Ticket '+(slateTickets.length+1),bt:'profit',b:0,stake:'25',odds:'',legs:[dflt()]}); renderSlate();});
+}
+
 /* ---------- live results auto-sync (ESPN public FIFA World Cup feed) ---------- */
 function mapTeam(t){ if(!t)return null;
   const ab=(t.abbreviation||'').toUpperCase(); if(T[ab])return ab;
@@ -2324,7 +2538,7 @@ function liveBadgeHTML(){ const s=LIVE.state;
 function updateLiveBadge(){ const el=document.getElementById('livebadge'); if(el)el.innerHTML=liveBadgeHTML(); }
 let curTab='scoreboard', curGroup=0; const lastTab={};
 function rerenderActive(){ const tab=curTab;
-  const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,staking:renderStaking,calibrate:renderCalibrate}[tab];
+  const fn={matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,slate:renderSlate,staking:renderStaking,calibrate:renderCalibrate}[tab];
   if(fn){ try{ fn(); }catch(e){} } }
 async function syncLive(){
   if(typeof fetch!=='function'){ LIVE.state='fail'; updateLiveBadge(); refreshSB(); return; }
@@ -2372,9 +2586,9 @@ const GROUPS=[
   ['Betting',['parlay','builder','staking']],
   ['More',['calibrate','method']],
 ];
-const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',staking:'Staking',calibrate:'Calibrate',method:'Method'};
-const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,staking:renderStaking,calibrate:renderCalibrate};
-const ALLTABS=['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','staking','calibrate','method'];
+const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',slate:'Slate',staking:'Staking',calibrate:'Calibrate',method:'Method'};
+const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,slate:renderSlate,staking:renderStaking,calibrate:renderCalibrate};
+const ALLTABS=['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','slate','staking','calibrate','method'];
 function showTab(tab){
   ALLTABS.forEach(id=>{const el=document.getElementById(id); if(el)el.classList.toggle('hide',id!==tab);});
   curTab=tab; const gi=GROUPS.findIndex(g=>g[1].includes(tab)); if(gi>=0){curGroup=gi;lastTab[gi]=tab;}
