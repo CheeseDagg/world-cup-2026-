@@ -2196,6 +2196,14 @@ function recomputeElo(games){
 }
 // In-play probability for a game in progress: remaining expected goals scale with time left,
 // added onto the current score; draw → extra time/shootout treated as a coin flip.
+function clkMin(clk){
+  clk=(clk||'').toString();
+  if(/HT/i.test(clk))return 45;
+  const m=clk.match(/(\d+)\s*'?\s*\+\s*(\d+)/);   // stoppage "45'+5'" -> 50, "90'+3'" -> 93
+  if(m)return parseInt(m[1],10)+parseInt(m[2],10);
+  const n=clk.match(/(\d+)/);                      // "63'" -> 63
+  return n?parseInt(n[1],10):0;
+}
 function inPlayAdvance(hc,ac,hs,as,minute){
   const mm=modelMatch(hc,ac);
   const frac=Math.min(Math.max((90-minute)/90,0),1);
@@ -2233,7 +2241,7 @@ function renderScoreboard(){
     let foot='';
     if(done&&g.winnerName) foot='<div class="sbfoot"><span class="adv">✓ '+g.winnerName+' advance</span></div>';
     else if(g.hc&&g.ac&&T[g.hc]&&T[g.ac]){
-      if(live){ const min=/HT/i.test(g.clk)?45:(parseInt((g.clk||'').replace(/[^0-9]/g,''),10)||0);
+      if(live){ const min=clkMin(g.clk);
         const ip=inPlayAdvance(g.hc,g.ac,parseInt(g.hs,10)||0,parseInt(g.as,10)||0,min);
         const favH=ip.live>=0.5, fav=favH?g.home:g.away, fp=favH?ip.live:1-ip.live, pre=favH?ip.pre:1-ip.pre, d=(fp-pre)*100;
         const arr=Math.abs(d)<0.5?'':(d>0?' <span style="color:var(--pos)">▲'+Math.abs(d).toFixed(0)+'</span>':' <span style="color:var(--neg)">▼'+Math.abs(d).toFixed(0)+'</span>');
@@ -2276,7 +2284,7 @@ function trkDelta(now,pre){ const d=(now-pre)*100; if(Math.abs(d)<0.5)return '';
   return d>0?' <span class="tup">▲'+Math.abs(d).toFixed(0)+'</span>':' <span class="tdn">▼'+Math.abs(d).toFixed(0)+'</span>'; }
 function trackerPanel(g){
   if(!(g.hc&&g.ac&&T[g.hc]&&T[g.ac])) return '<div class="trk"><div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span></div><div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+g.hs+' – '+g.as+'</div><div class="tnm a">'+g.away+'</div></div><div class="sbnote" style="padding:6px">Model odds unavailable for this matchup.</div></div>';
-  const min=/HT/i.test(g.clk)?45:(parseInt((g.clk||'').replace(/[^0-9]/g,''),10)||0);
+  const min=clkMin(g.clk);
   const hs=parseInt(g.hs,10)||0, as=parseInt(g.as,10)||0, o=inPlayOdds(g.hc,g.ac,hs,as,min);
   return '<div class="trk">'
    +'<div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' · '+g.clk:'')+'</span></div>'
