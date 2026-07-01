@@ -344,8 +344,8 @@
   .corr th,.corr td{padding:5px 8px;text-align:center;border:1px solid var(--line);min-width:30px}
   .corr th{color:var(--mut2);font-weight:600}
   .corr td.diag{color:var(--mut2);background:rgba(255,255,255,0.02)}
-  .hm td{width:44px;height:30px;text-align:center;font-size:10.5px;color:var(--ink);border:1px solid var(--pitch);cursor:default}
-  .hm td.modal{outline:2px solid var(--gold);outline-offset:-2px;font-weight:800;color:var(--gold)}
+  .hm td{width:44px;height:31px;text-align:center;font-size:11.5px;color:var(--ink);border:1px solid var(--pitch);cursor:default}
+  .hm td.modal{outline:2px solid var(--gold);outline-offset:-2px;font-weight:800}
   .hm th{color:var(--mut2);font-size:10px;font-weight:800;padding:3px 6px;text-align:center}
   .hm th.corner{font-size:8.5px;font-weight:700;text-align:right;white-space:nowrap;color:var(--mut2)}
 
@@ -1603,8 +1603,8 @@ function renderLab(){
   const scoreList=[]; for(let i=0;i<N;i++)for(let j=0;j<N;j++)scoreList.push({l:i+'–'+j,p:gd[i][j]}); scoreList.sort((a,b)=>b.p-a.p);
   let heatRows='';
   for(let i=0;i<N;i++){ heatRows+='<tr><th>'+i+'</th>';
-    for(let j=0;j<N;j++){ const p=gd[i][j], modal=(i===gmi&&j===gmj);
-      heatRows+='<td class="'+(modal?'modal':'')+'" style="background:rgba(232,184,75,'+(0.05+0.9*p/gmax).toFixed(3)+')" title="'+labH+' '+i+'–'+j+' '+labA+' · '+(p*100).toFixed(1)+'% · fair '+fairAm(p)+'">'+(p*100).toFixed(1)+'</td>'; }
+    for(let j=0;j<N;j++){ const p=gd[i][j], modal=(i===gmi&&j===gmj); const f=0.05+0.9*p/gmax; const dark=f>=0.4;
+      heatRows+='<td class="'+(modal?'modal':'')+'" style="background:rgba(232,184,75,'+f.toFixed(3)+');color:'+(dark?'#161100':'#e7e1d1')+';font-weight:'+(f>0.3?700:600)+'" title="'+labH+' '+i+'–'+j+' '+labA+' · '+(p*100).toFixed(1)+'% · fair '+fairAm(p)+'">'+(p*100).toFixed(1)+'</td>'; }
     heatRows+='</tr>'; }
   const lamT=md.la+md.lb; let gterm=Math.exp(-lamT), gcum=0, gbars=[];
   for(let k=0;k<=5;k++){ gbars.push([String(k),gterm]); gcum+=gterm; gterm*=lamT/(k+1); }
