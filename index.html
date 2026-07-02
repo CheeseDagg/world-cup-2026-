@@ -105,6 +105,7 @@
   .bbqp{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:5px 10px;font-size:11.5px;color:var(--mut);cursor:pointer}
   .bbqp:hover{border-color:var(--gold-dim);color:var(--ink)}
   .mkt{width:100%;border-collapse:collapse;font-size:13px}
+  .mkthint{font-size:10.5px;color:var(--mut2);font-style:italic}
   .mkt th{text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);font-weight:700;padding:8px;border-bottom:1px solid var(--line)}
   .mkt td{padding:7px 8px;border-bottom:1px solid var(--line)}
   .mkt .cat{color:var(--gold);font-weight:700;font-size:10px;letter-spacing:.07em;text-transform:uppercase;padding-top:13px}
@@ -132,6 +133,8 @@
   .slchip .v{font-size:19px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
   .slchip .l{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-top:2px}
   .slspof{background:rgba(255,107,107,.09);border:1px solid var(--neg);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink);margin-bottom:12px;line-height:1.55}
+  .sldep{background:rgba(212,160,80,.09);border:1px solid var(--gold-dim);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink);margin-bottom:12px;line-height:1.55}
+  .slcond{font-size:11px;color:var(--mut2);font-style:italic}
   .slmx{background:rgba(212,160,80,.09);border:1px solid var(--gold);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--ink);margin-bottom:14px;line-height:1.55}
   .slgrid{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px}
   .slgrid th{font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut2);font-weight:700;padding:7px 6px;border-bottom:1px solid var(--line);text-align:center}
@@ -786,7 +789,8 @@ DATA.matches.forEach(m=>{ nextMatch[m.h]=m.ph; nextMatch[m.a]=m.pa; });
 function formBadge(ab){ const t=T[ab]; return `<span class="form">Elo <b>${t.elo??'—'}</b> · Grp ${t.grp} ${t.pts}p ${t.w}-${t.d}-${t.l}</span>`; }
 
 /* ----- Elo -> Poisson match model ----- */
-const L_AVG=1.404, MU_LO=2.0, MU_HI=3.7;         // league goals/team-game; sane total bounds
+const L_AVG=1.24, MU_LO=1.8, MU_HI=3.2, ATT_SHRINK=0.65, DC_RHO=-0.13;   // base rate + shrinkage; DC_RHO is the Dixon-Coles draw correction (calibrated on 80 completed matches)
+const HOST=new Set(['USA','CAN','MEX']), HOST_ELO=70;   // 2026 hosts play in their own country; standard home-crowd Elo edge, applied automatically vs non-hosts (host-vs-host cancels)
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 function poisP(k,l){ let p=Math.exp(-l); for(let i=1;i<=k;i++)p*=l/i; return p; }
 const weElo=(ea,eb)=>1/(Math.pow(10,-(ea-eb)/400)+1);   // neutral-site result expectancy
@@ -796,10 +800,15 @@ function resExp(s,mu,K=11){ const la=Math.max((mu+s)/2,0.02), lb=Math.max((mu-s)
 function solveS(we,mu){ let lo=-5,hi=5; for(let n=0;n<46;n++){const m=(lo+hi)/2; if(resExp(m,mu)<we)lo=m; else hi=m;} return (lo+hi)/2; }
 function modelMatch(h,a,eloAdj=0){
   const th=T[h], ta=T[a];
-  const mu=clamp(L_AVG*th.att*ta.def + L_AVG*ta.att*th.def, MU_LO, MU_HI);  // total from attack/defense
+  if(eloAdj===0){ const hH=HOST.has(h), aH=HOST.has(a); if(hH&&!aH)eloAdj=HOST_ELO; else if(aH&&!hH)eloAdj=-HOST_ELO; }  // auto host-nation home edge; an explicit eloAdj (e.g. Matchup Lab toggle) overrides it
+  const sh=x=>1+ATT_SHRINK*(x-1);   // regress 3-game att/def toward 1.0 so a blowout (e.g. 5-0 vs the weakest side) doesn't over-drive the total
+  const mu=clamp(L_AVG*sh(th.att)*sh(ta.def) + L_AVG*sh(ta.att)*sh(th.def), MU_LO, MU_HI);  // total from (shrunk) attack/defense
   const s=solveS(weElo(th.elo+eloAdj,ta.elo), mu);                          // supremacy from Elo (+home adj)
   const la=Math.max((mu+s)/2,0.02), lb=Math.max((mu-s)/2,0.02), K=11, M=[];   // floor BOTH goal rates exactly as the solver does — a huge Elo gap (either direction) can drive one rate negative; without the floor the Poisson grid breaks (probabilities outside [0,1])
-  for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++)M[i][j]=poisP(i,la)*poisP(j,lb);}
+  // Dixon-Coles low-score correction: independent Poisson under-predicts draws (~21% vs ~28% observed); DC_RHO<0 lifts 0-0/1-1 and trims 1-0/0-1 to match the real draw rate, then renormalize
+  const tau=(i,j)=> (i===0&&j===0)?1-la*lb*DC_RHO : (i===0&&j===1)?1+la*DC_RHO : (i===1&&j===0)?1+lb*DC_RHO : (i===1&&j===1)?1-DC_RHO : 1;
+  let Z=0; for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++){const p=poisP(i,la)*poisP(j,lb)*tau(i,j); M[i][j]=p; Z+=p;}}
+  for(let i=0;i<K;i++)for(let j=0;j<K;j++)M[i][j]/=Z;
   let ph=0,pd=0,over=0,btts=0;
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){const p=M[i][j];
     if(i>j)ph+=p; else if(i===j)pd+=p; if(i+j>=3)over+=p; if(i>=1&&j>=1)btts+=p;}
@@ -1171,6 +1180,22 @@ function renderCalibrate(){
 }
 
 
+const XGP={"MEX":[0.81,0.42],"RSA":[0.70,1.11],"KOR":[0.88,0.83],"CZE":[0.78,1.68],"CAN":[1.86,0.59],"BIH":[0.73,0.82],"USA":[1.15,1.22],"PAR":[0.25,1.01],"QAT":[0.77,1.83],"SUI":[1.58,0.63],"BRA":[1.84,0.83],"MAR":[1.36,0.59],"HTI":[0.60,1.16],"SCO":[0.83,1.40],"AUS":[0.37,0.68],"TUR":[1.71,1.43],"GER":[1.73,0.81],"CUW":[0.49,1.67],"NED":[1.34,0.84],"JPN":[0.92,0.46],"CIV":[1.07,0.77],"ECU":[1.32,0.68],"SWE":[0.90,1.32],"TUN":[0.29,1.36],"ESP":[1.19,0.21],"CPV":[0.89,1.46],"BEL":[1.57,0.52],"EGY":[1.03,1.04],"KSA":[0.49,1.36],"URU":[1.07,0.85],"IRN":[1.06,0.89],"NZL":[0.89,1.54],"FRA":[1.35,0.65],"SEN":[1.36,0.92],"IRQ":[0.47,1.44],"NOR":[1.68,1.00],"ARG":[1.36,0.48],"DZA":[0.99,0.87],"AUT":[1.07,1.31],"JOR":[0.58,1.33],"POR":[0.97,0.87],"COD":[0.83,0.56],"ENG":[1.30,0.67],"CRO":[0.82,1.34],"GHA":[0.57,0.73],"PAN":[0.55,1.29],"UZB":[0.59,1.79],"COL":[1.05,0.74]};  // opponent-adjusted xG [attack, defense]; performance lens for the Ratings tab, deliberately NOT in the prediction engine (it back-tested worse)
+function perfRepPanel(){
+  const teams=Object.keys(T).filter(c=>XGP[c]&&T[c].elo!=null);
+  const byElo=[...teams].sort((a,b)=>T[b].elo-T[a].elo), repRank={}; byElo.forEach((c,i)=>repRank[c]=i+1);
+  const pw=c=>XGP[c][0]-XGP[c][1];
+  const byPerf=[...teams].sort((a,b)=>pw(b)-pw(a)), perfRank={}; byPerf.forEach((c,i)=>perfRank[c]=i+1);
+  const rows=byPerf.map(c=>({c,nm:T[c].name,p:pw(c),rep:repRank[c],perf:perfRank[c],sh:repRank[c]-perfRank[c]}));
+  const shTag=sh=> sh>0?`<span style="color:var(--pos);font-weight:700">▲${sh}</span>`:sh<0?`<span style="color:var(--neg);font-weight:700">▼${Math.abs(sh)}</span>`:`<span style="color:var(--mut2)">—</span>`;
+  const under=rows.filter(r=>r.sh>0).sort((a,b)=>b.sh-a.sh).slice(0,4);
+  const over=rows.filter(r=>r.sh<0).sort((a,b)=>a.sh-b.sh).slice(0,4);
+  const card=(title,list,col)=>`<div style="flex:1;min-width:190px"><div class="note" style="color:${col};font-weight:700;margin-bottom:4px">${title}</div>`+list.map(r=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>${r.nm}</span><span style="color:var(--mut)">rep #${r.rep} → play #${r.perf} ${shTag(r.sh)}</span></div>`).join('')+`</div>`;
+  let tbl=`<table class="rtable" style="margin-top:12px"><thead><tr><th>Play #</th><th>Team</th><th>xG power</th><th>Rep #</th><th>Shift</th></tr></thead><tbody>`;
+  rows.forEach(r=>{ tbl+=`<tr><td class="rk num">${r.perf}</td><td><span class="abbr" style="width:auto;margin-right:8px">${r.c}</span>${r.nm}</td><td class="num" style="color:${r.p>=0?'var(--pos)':'var(--neg)'}">${r.p>=0?'+':''}${r.p.toFixed(2)}</td><td class="num" style="color:var(--mut)">${r.rep}</td><td class="num">${shTag(r.sh)}</td></tr>`; });
+  tbl+=`</tbody></table>`;
+  return `<div class="panel"><h2>Performance vs reputation</h2><p class="note">Two ways to rank the field. <b>Reputation</b> (Rep #) is the Power/Elo order — pre-tournament pedigree nudged by results, the number the prediction engine actually uses. <b>Performance</b> (Play #) is opponent-adjusted xG: chance quality created minus conceded, finishing luck stripped out and schedule strength divided back in — what a side has genuinely <i>done</i>, regardless of name or scoreline. <span style="color:var(--pos)">▲</span> = playing above its billing; <span style="color:var(--neg)">▼</span> = living on the name.</p><div style="display:flex;gap:18px;flex-wrap:wrap;margin:10px 0">`+card('Underrated by reputation',under,'var(--pos)')+card('Living on the name',over,'var(--neg)')+`</div>`+tbl+`<p class="note" style="margin-top:12px"><b>Read tool, not a price.</b> This ranking is deliberately <i>not</i> wired into the model — back-tested against the completed knockouts, xG-based ratings predicted <i>worse</i> (three games of xG amplifies blowout noise). It is the sharpest lens on true quality for your own reads; the engine still prices off the Power number, which earned its place on the back-test.</p></div>`;
+}
 let sortKey='elo', sortDir=-1, ratHi='';
 function ratingsScatter(hi){
   const ts=Object.entries(T).map(([ab,t])=>({ab,x:t.sotr,y:t.ga90,elo:t.elo})).filter(t=>t.x!=null&&t.y!=null&&t.elo!=null);
@@ -1287,7 +1312,7 @@ function renderRatings(){
   if(ratHi&&T[ratHi]){ const t=T[ratHi], rk=Object.values(T).filter(x=>x.elo!=null&&(t.elo==null||x.elo>t.elo)).length+1;
     cap='<div class="ratcap"><b>'+t.name+'</b> — shot dominance <b>'+(t.sotr!=null?t.sotr.toFixed(0)+'%':'—')+'</b>, GA/90 <b>'+(t.ga90!=null?t.ga90.toFixed(2):'—')+'</b>, Power <b>'+(t.elo??'—')+'</b> · rank #'+rk+' of 48</div>'; }
   const sec=document.getElementById('ratings');
-  sec.innerHTML='<div class="panel"><h2>The field at a glance</h2><p class="note">All 48 teams mapped by chance creation (shot dominance, across) against defensive solidity (GA/90, up — stingier is higher). Brighter gold means a higher Power rating. Top-right is the contender zone: sides that both create and prevent. Dashed lines mark the field medians.</p>'+finder+ratingsScatter(ratHi)+cap+'</div>'+confRollup()+'<p class="note" style="margin:6px 0 12px"><b style="color:var(--ink)">Live-updating model:</b> Power is each team’s current World-Football-Elo rating. After every completed knockout game it shifts by the standard Elo formula — winner gains, loser loses, scaled by goal margin; a shootout counts as a draw — so <b style="color:var(--ink)">Δ live</b> shows the move from the pre-knockout baseline. Every prediction in the tool (title odds, matchup lab, scoreboard picks) re-derives from these updated numbers.</p><div class="btnrow" style="margin-bottom:10px"><button class="btn" id="ratCSV">⤓ export ratings CSV</button></div>'+html;
+  sec.innerHTML='<div class="panel"><h2>The field at a glance</h2><p class="note">All 48 teams mapped by chance creation (shot dominance, across) against defensive solidity (GA/90, up — stingier is higher). Brighter gold means a higher Power rating. Top-right is the contender zone: sides that both create and prevent. Dashed lines mark the field medians.</p>'+finder+ratingsScatter(ratHi)+cap+'</div>'+perfRepPanel()+confRollup()+'<p class="note" style="margin:6px 0 12px"><b style="color:var(--ink)">Live-updating model:</b> Power is each team’s current World-Football-Elo rating. After every completed knockout game it shifts by the standard Elo formula — winner gains, loser loses, scaled by goal margin; a shootout counts as a draw — so <b style="color:var(--ink)">Δ live</b> shows the move from the pre-knockout baseline. Every prediction in the tool (title odds, matchup lab, scoreboard picks) re-derives from these updated numbers.</p><div class="btnrow" style="margin-bottom:10px"><button class="btn" id="ratCSV">⤓ export ratings CSV</button></div>'+html;
   sec.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
     const k=th.dataset.k;
     if(k===sortKey)sortDir*=-1; else {sortKey=k; sortDir=(k==='ab'||k==='grp'||k==='ga90')?1:-1;}
@@ -1303,6 +1328,7 @@ function renderRatings(){
 /* ---------- parlay builder ---------- */
 let parlayLegs=[{mi:0,market:'1x2',side:'h',price:''},{mi:1,market:'1x2',side:'h',price:''}];
 let parlayBoost='', parlayOvr='', parlayBoostType='profit', parlayBonus='70', parlayStake='';
+let brkType='profit', brkAmt='50', brkRows=[['',''],['',''],['',''],['',''],['','']];
 const MK={'1x2':'Match result','dc':'Double chance','ou15':'O/U 1.5','ou':'O/U 2.5','ou35':'O/U 3.5','btts':'BTTS','cs':'Clean sheet','wm':'Win margin','xs':'Correct score','adv':'To advance'};
 const amer=d=> d>=2 ? '+'+Math.round((d-1)*100) : ''+Math.round(-100/(d-1));
 // all 14 upcoming R32 ties — parlay legs price off the model, so no feed line is needed
@@ -1408,6 +1434,28 @@ function readLeg(row,idx){
   l.side=valid.includes(side)?side:valid[0];
   l.price=row.querySelector('.leg-price').value;
 }
+function computeBoostRank(){
+  const out=document.getElementById('brkOut'); if(!out)return;
+  const type=brkType, amt=Math.max(0,(parseFloat(brkAmt)||0)/100), rows=[];
+  for(let i=0;i<5;i++){ const oEl=document.getElementById('brkO'+i), pEl=document.getElementById('brkP'+i); if(!oEl||!pEl)continue;
+    const oRaw=(oEl.value||'').trim().replace('+',''), pRaw=(pEl.value||'').trim().replace('%','');
+    if(oRaw===''||pRaw===''||isNaN(parseFloat(oRaw))||isNaN(parseFloat(pRaw)))continue;
+    const D=amToDec(parseFloat(oRaw)), p=Math.max(0,Math.min(1,parseFloat(pRaw)/100)), evBase=p*D-1;
+    let evPromo; if(type==='profit'){ const Db=1+(D-1)*(1+amt); evPromo=p*Db-1; } else if(type==='nosweat'){ evPromo=p*(D-1)-(1-p)*(1-amt); } else { evPromo=p*(D-1); }
+    rows.push({odds:amer(D),p,evBase,evPromo,gain:evPromo-evBase}); }
+  if(!rows.length){ out.innerHTML='<p class="note">Enter at least one play — its price and your model win% — to rank.</p>'; return; }
+  rows.sort((a,b)=>b.evPromo-a.evPromo);
+  let tbl='<table class="ctable"><thead><tr><th>#</th><th>Price</th><th>Model</th><th>EV straight</th><th>EV w/ promo</th><th>Boost gain</th></tr></thead><tbody>';
+  rows.forEach((r,rk)=>{ const drv=r.evBase<=0&&r.evPromo>0;
+    tbl+='<tr'+(rk===0?' style="background:rgba(232,184,75,0.08)"':'')+'><td class="num">'+(rk+1)+'</td><td class="num">'+r.odds+'</td><td class="num">'+(r.p*100).toFixed(0)+'%</td>'
+      +'<td class="num '+(r.evBase>0?'win':'lose')+'">'+(r.evBase>=0?'+':'')+(r.evBase*100).toFixed(1)+'%</td>'
+      +'<td class="num '+(r.evPromo>0?'win':'lose')+'" style="font-weight:700">'+(r.evPromo>=0?'+':'')+(r.evPromo*100).toFixed(1)+'%'+(drv?' <span style="color:var(--gold)">◆</span>':'')+'</td>'
+      +'<td class="num" style="color:var(--pos)">+'+(r.gain*100).toFixed(1)+'%</td></tr>'; });
+  tbl+='</tbody></table>';
+  let note='Ranked by EV with the promo applied. <b>Boost gain</b> is the extra EV the promo adds — for a profit boost or free bet it grows with longer odds, so the promo does the most work on your bigger prices.';
+  if(rows.some(r=>r.evBase<=0&&r.evPromo>0)) note+=' <span style="color:var(--gold)">◆</span> marks plays that are only +EV <b>because</b> of the promo — the boost is carrying them, not a real edge. Fine to take, but do not bank it as value.';
+  out.innerHTML=tbl+'<p class="note" style="margin-top:8px">'+note+'</p>';
+}
 function renderParlay(){
   const sec=document.getElementById('parlay');
   const paramHTML = parlayBoostType==='profit'
@@ -1435,7 +1483,10 @@ function renderParlay(){
       <span class="note" style="margin-left:6px">override price</span><input class="lp" id="ovr" inputmode="numeric" placeholder="auto" value="${parlayOvr}" style="width:58px">
     </div>
     <div id="presult"></div></div>`;
-  sec.innerHTML=h;
+  const brkTypeSel='<select id="brkType"><option value="profit"'+(brkType==='profit'?' selected':'')+'>profit boost</option><option value="nosweat"'+(brkType==='nosweat'?' selected':'')+'>no-sweat bet</option><option value="bonus"'+(brkType==='bonus'?' selected':'')+'>bonus / free bet</option></select>';
+  const brkRowsHTML=brkRows.map((r,i)=>'<div class="leg" style="border:none;gap:8px;align-items:center;padding:2px 0"><span class="note" style="width:auto;min-width:44px">play '+(i+1)+'</span><input class="lp" id="brkO'+i+'" inputmode="numeric" placeholder="price e.g. +240" value="'+r[0]+'" style="width:118px"><input class="lp" id="brkP'+i+'" inputmode="decimal" placeholder="model %" value="'+r[1]+'" style="width:76px"><span class="note">%</span></div>').join('');
+  const brkPanel='<div class="panel"><h2>Boost EV ranker — where should the promo go?</h2><p class="note">You usually have one boost and several plays it could ride. Enter each candidate&rsquo;s <b>price</b> and your <b>model win%</b>, pick the promo, and this ranks them by EV with the promo applied — and flags any play that is only +EV <i>because</i> of the boost.</p><div class="leg" style="border:none;flex-wrap:wrap;gap:8px;align-items:center"><span class="note">promo</span>'+brkTypeSel+'<input class="lp" id="brkAmt" inputmode="decimal" placeholder="50" value="'+brkAmt+'" style="width:46px"><span class="note">% (boost or refund; ignored for free bet)</span></div>'+brkRowsHTML+'<div id="brkOut" style="margin-top:10px"></div></div>';
+  sec.innerHTML=h+brkPanel;
   sec.querySelector('#addLeg').onclick=()=>{ parlayLegs.push({mi:0,market:'1x2',side:'h',price:''}); renderParlay(); };
   sec.querySelector('#addManual').onclick=()=>{ parlayLegs.push({mi:-1,market:'manual',side:'',label:'',prob:'',price:''}); renderParlay(); };
   sec.querySelectorAll('[data-leg]').forEach(row=>{
@@ -1449,6 +1500,10 @@ function renderParlay(){
   const bv=sec.querySelector('#bonusv'); if(bv)bv.addEventListener('input',e=>{ parlayBonus=e.target.value; recomputeParlay(); });
   const st=sec.querySelector('#stake'); if(st)st.addEventListener('input',e=>{ parlayStake=e.target.value; recomputeParlay(); });
   sec.querySelector('#ovr').addEventListener('input',e=>{ parlayOvr=e.target.value; recomputeParlay(); });
+  const brt=sec.querySelector('#brkType'); if(brt)brt.addEventListener('change',e=>{ brkType=e.target.value; computeBoostRank(); });
+  const bra=sec.querySelector('#brkAmt'); if(bra)bra.addEventListener('input',e=>{ brkAmt=e.target.value; computeBoostRank(); });
+  for(let i=0;i<5;i++){ const o=sec.querySelector('#brkO'+i), p=sec.querySelector('#brkP'+i); if(o)o.addEventListener('input',e=>{ brkRows[i][0]=e.target.value; computeBoostRank(); }); if(p)p.addEventListener('input',e=>{ brkRows[i][1]=e.target.value; computeBoostRank(); }); }
+  computeBoostRank();
   recomputeParlay();
 }
 function recomputeParlay(){
@@ -1583,7 +1638,7 @@ function computeStaking(){
   }
 }
 let labH='ARG', labA='ESP', labHome='0';
-let devH='', devD='', devA='', devMkt='1x2';
+let devH='', devD='', devA='', devMkt='1x2', labBlend='50', labAdj='0';
 const DEV_MKTS={'1x2':'Match result','adv':'To advance','ou':'Over/Under 2.5','btts':'Both teams to score'};
 function devDefs(md,th,ta){
   return devMkt==='1x2' ? [[th.name,md.ph,'devH'],['Draw',md.pd,'devD'],[ta.name,md.pa,'devA']]
@@ -1597,27 +1652,30 @@ function computeDevig(md,th,ta){
   const parse=v=>{ const r=(v||'').trim().replace('+',''); return r!==''&&!isNaN(parseFloat(r))?amToDec(parseFloat(r)):null; };
   const defs=devDefs(md,th,ta).map(d=>[d[0],d[1],parse(vars[d[2]])]);
   const haveAll=defs.every(d=>d[2]), R=haveAll?defs.reduce((a,d)=>a+1/d[2],0):null;
+  const w=Math.max(0,Math.min(1,(parseFloat(labBlend)||50)/100));
   let rows='';
   defs.forEach(([nm,mp,d])=>{
-    const q=d?1/d:null, fair=(haveAll&&q!=null)?q/R:null, edge=fair!=null?(mp-fair)*100:null, ev=d!=null?(mp*d-1)*100:null;
+    const q=d?1/d:null, fair=(haveAll&&q!=null)?q/R:null;
+    const blend=(fair!=null)?w*mp+(1-w)*fair:null;
+    const ev=(blend!=null&&d!=null)?(blend*d-1)*100:(d!=null?(mp*d-1)*100:null);
     rows+='<tr><td>'+nm+'</td>'
       +'<td class="num">'+(q!=null?(q*100).toFixed(1)+'%':'—')+'</td>'
       +'<td class="num">'+(fair!=null?(fair*100).toFixed(1)+'%':'—')+'</td>'
       +'<td class="num">'+(mp*100).toFixed(1)+'%</td>'
-      +'<td class="num" style="font-weight:700;color:'+(edge!=null?(edge>=0?'var(--pos)':'var(--neg)'):'var(--mut2)')+'">'+(edge!=null?(edge>=0?'+':'')+edge.toFixed(1):'—')+'</td>'
+      +'<td class="num" style="font-weight:700;color:'+(blend!=null?'var(--gold)':'var(--mut2)')+'">'+(blend!=null?(blend*100).toFixed(1)+'%':'—')+'</td>'
       +'<td class="num '+(ev!=null?(ev>0?'win':'lose'):'')+'">'+(ev!=null?(ev>=0?'+':'')+ev.toFixed(1)+'%':'—')+'</td></tr>';
   });
   let summary;
   if(haveAll){
-    if(R>=1){ summary='Book hold: <b>'+((R-1)*100).toFixed(1)+'%</b> overround. The <b>no-vig</b> column is the sharp line; a positive <span style="color:var(--pos)">true edge</span> is the model seeing value the market doesn’t.'; }
+    if(R>=1){ summary='Book hold <b>'+((R-1)*100).toFixed(1)+'%</b>. <b>Blend</b> is '+(w*100).toFixed(0)+'% model / '+((1-w)*100).toFixed(0)+'% no-vig market — the ensemble estimate, sharper than either alone and the honest basis for the <b>EV</b> column. Slide toward market when you trust the line, toward model when you have an edge it lacks.'; }
     else { const split=defs.map(d=>d[0]+' <b>'+(1/d[2]/R*100).toFixed(0)+'%</b>').join(' / '); summary='<span style="color:var(--pos)">⚠ Arbitrage — guaranteed +'+((1/R-1)*100).toFixed(2)+'%.</span> Split your stake '+split+' to lock equal return (these prices are likely across different books).'; }
-  } else summary='Enter '+(defs.length===3?'all three':'both')+' prices to strip the vig and reveal the market’s true line.';
-  out.innerHTML='<table class="ctable"><thead><tr><th>Outcome</th><th>Implied</th><th>No-vig</th><th>Model</th><th>True edge</th><th>EV</th></tr></thead><tbody>'+rows+'</tbody></table><p class="note" style="margin-top:8px">'+summary+'</p>';
+  } else summary='Enter '+(defs.length===3?'all three':'both')+' prices to strip the vig, blend with the model, and get a true-edge EV.';
+  out.innerHTML='<table class="ctable"><thead><tr><th>Outcome</th><th>Implied</th><th>No-vig</th><th>Model</th><th>Blend</th><th>EV</th></tr></thead><tbody>'+rows+'</tbody></table><p class="note" style="margin-top:8px">'+summary+'</p>';
 }
 function teamOptions(sel){ return Object.entries(T).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([ab,t])=>`<option value="${ab}" ${ab===sel?'selected':''}>${t.name}</option>`).join(''); }
 function renderLab(){
   const sec=document.getElementById('lab');
-  const eloAdj=labHome==='h'?100:labHome==='a'?-100:0;
+  const eloAdj=(labHome==='h'?100:labHome==='a'?-100:0)+(parseFloat(labAdj)||0);   // home-site bump + manual team-news nudge (injury, keeper change, rest)
   const md=modelMatch(labH,labA,eloAdj), th=T[labH], ta=T[labA], ph=md.ph,pd=md.pd,pa=md.pa;
   const outs=[['h',th.name+' win',ph],['d','Draw',pd],['a',ta.name+' win',pa],['ah',th.name+' advance',md.advH],['aa',ta.name+' advance',md.advA],['over','Over 2.5',md.over],['under','Under 2.5',md.under],['by','BTTS Yes',md.btts],['bn','BTTS No',md.nobtts]];
   // scoreline grid (Poisson) for the heatmap, totals, and correct-score pricing
@@ -1656,19 +1714,24 @@ function renderLab(){
   let h=`<div class="panel"><h2>Matchup lab — any team vs any team</h2>
     <p class="note">Run the model on any pairing in the field — look ahead to a possible bracket matchup, price a hypothetical
     final, or settle a "who'd win". Same Elo→Poisson engine as the Matches tab. Neutral by default; set a home side to add the
-    standard +100-Elo home bump — also how to handle the hosts (USA, Mexico, Canada) on days they play at home.</p>
+    standard +100-Elo home bump — also how to handle the hosts (USA, Mexico, Canada) on days they play at home. The <b>team-news nudge</b> lets you hand-adjust for what the model can't see — a star ruled out, a keeper change, a rested XI — where ~100 Elo is roughly a key starter or a goal of quality.</p>
     <div class="leg" style="border:none;padding-top:4px">
       <select id="labH">${teamOptions(labH)}</select><span class="note">vs</span><select id="labA">${teamOptions(labA)}</select>
       <select id="labHome"><option value="0" ${labHome==='0'?'selected':''}>neutral site</option>
         <option value="h" ${labHome==='h'?'selected':''}>${th.name} home</option>
         <option value="a" ${labHome==='a'?'selected':''}>${ta.name} home</option></select>
     </div>
+    <div class="leg" style="border:none;align-items:center;gap:8px;padding-top:2px">
+      <span class="note" style="width:auto">Team-news nudge</span>
+      <input type="range" id="labAdj" min="-150" max="150" step="10" value="${labAdj}" style="flex:1;max-width:220px">
+      <span class="note" style="width:auto" id="labAdjLbl">${labAdj==='0'?'none — ~100 Elo ≈ a key starter':(Math.abs(parseFloat(labAdj))+' Elo → '+(parseFloat(labAdj)>0?th.name:ta.name))}</span>
+    </div>
     <div class="barwrap" style="margin-top:14px"><div class="bar">
       <div class="seg h" style="width:${ph*100}%">${ph>=.11?(ph*100).toFixed(0)+'%':''}</div>
       <div class="seg d" style="width:${pd*100}%">${pd>=.11?'D '+(pd*100).toFixed(0)+'%':''}</div>
       <div class="seg a" style="width:${pa*100}%">${pa>=.11?(pa*100).toFixed(0)+'%':''}</div></div>
       <div class="barlbl"><span>${labH} win</span><span>draw</span><span>${labA} win</span></div></div>
-    <div class="msub">expected goals <b>${md.la.toFixed(2)}</b>–<b>${md.lb.toFixed(2)}</b> · total <b>${md.mu.toFixed(2)}</b>${eloAdj?` · ${eloAdj>0?th.name:ta.name} home +100 Elo`:''}</div>
+    <div class="msub">expected goals <b>${md.la.toFixed(2)}</b>–<b>${md.lb.toFixed(2)}</b> · total <b>${md.mu.toFixed(2)}</b>${eloAdj?` · ${eloAdj>0?th.name:ta.name} +${Math.abs(eloAdj)} Elo`:''}</div>
     <table class="ctable" style="margin-top:12px"><thead><tr><th>Market</th><th>model</th><th>fair</th></tr></thead><tbody>
       <tr><td>${th.name} win (90')</td><td>${(ph*100).toFixed(0)}%</td><td>${fairAm(ph)}</td></tr>
       <tr><td>Draw (90')</td><td>${(pd*100).toFixed(0)}%</td><td>${fairAm(pd)}</td></tr>
@@ -1706,16 +1769,24 @@ function renderLab(){
     <p class="note">Pick a market and enter the book's prices for this tie. We strip the vig (proportional method) to expose the
     <b>no-vig</b> line — the sharp estimate to measure against. The model's <span style="color:var(--pos)">true edge</span>
     is model minus that no-vig line, not minus the raw price: the honest way to read value. If the prices (possibly
-    shopped across books) imply under 100%, it flags the arbitrage and the stake split.</p>
+    shopped across books) imply under 100%, it flags the arbitrage and the stake split. The <b>Blend</b> slider fuses model and market into one ensemble line — the sharpest single estimate, and what the <b>EV</b> now prices against.</p>
     <div class="leg" style="border:none;flex-wrap:wrap;align-items:center;gap:6px">
       <select id="devMkt">${Object.entries(DEV_MKTS).map(([k,v])=>`<option value="${k}" ${devMkt===k?'selected':''}>${v}</option>`).join('')}</select>
       ${devDefs(md,th,ta).map(d=>`<span class="note" style="width:auto;min-width:28px">${d[0].replace(' to advance',' adv').replace('Both teams score','BTTS Y').replace('Neither / one only','BTTS N')}</span><input id="${d[2]}" class="lp" inputmode="numeric" placeholder="price" style="width:72px">`).join('')}
+    </div>
+    <div class="leg" style="border:none;align-items:center;gap:8px;margin-top:2px">
+      <span class="note" style="width:auto">Blend model↔market</span>
+      <input type="range" id="blendW" min="0" max="100" step="5" value="${labBlend}" style="flex:1;max-width:200px">
+      <span class="note" style="width:auto" id="blendLbl">${labBlend}% model / ${100-labBlend}% market</span>
     </div>
     <div id="devOut" style="margin-top:10px"></div></div>`;
   sec.innerHTML=h;
   document.getElementById('labH').addEventListener('change',e=>{labH=e.target.value; devH=devD=devA=''; renderLab();});
   document.getElementById('labA').addEventListener('change',e=>{labA=e.target.value; devH=devD=devA=''; renderLab();});
   document.getElementById('labHome').addEventListener('change',e=>{labHome=e.target.value; renderLab();});
+  const laEl=document.getElementById('labAdj');
+  if(laEl){ laEl.addEventListener('input',e=>{ const v=e.target.value, lbl=document.getElementById('labAdjLbl'); if(lbl)lbl.innerHTML=v==='0'?'none — ~100 Elo ≈ a key starter':(Math.abs(parseFloat(v))+' Elo → '+(parseFloat(v)>0?th.name:ta.name)); });
+    laEl.addEventListener('change',e=>{ labAdj=e.target.value; renderLab(); }); }
   const kSel=document.getElementById('kSel'), kPrice=document.getElementById('kPrice'), kOut=document.getElementById('kOut');
   const kCalc=()=>{ const o=outs[+kSel.value], p=o[2], raw=(kPrice.value||'').trim().replace('+','');
     if(raw===''||isNaN(parseFloat(raw))){ kOut.innerHTML=''; return; }
@@ -1737,6 +1808,7 @@ function renderLab(){
   const dvSel=document.getElementById('devMkt'); if(dvSel)dvSel.addEventListener('change',e=>{ devMkt=e.target.value; devH=devD=devA=''; renderLab(); });
   const dvWire=(id,set)=>{ const el=document.getElementById(id); if(el)el.addEventListener('input',e=>{ set(e.target.value); computeDevig(md,th,ta); }); };
   dvWire('devH',v=>devH=v); dvWire('devD',v=>devD=v); dvWire('devA',v=>devA=v);
+  const bw=document.getElementById('blendW'); if(bw)bw.addEventListener('input',e=>{ labBlend=e.target.value; const bl=document.getElementById('blendLbl'); if(bl)bl.innerHTML=labBlend+'% model / '+(100-labBlend)+'% market'; computeDevig(md,th,ta); });
   computeDevig(md,th,ta);
 }
 
@@ -2252,11 +2324,12 @@ function clkMin(clk){
 }
 // a red card shifts the remaining-goal rates: the down-a-man team scores less, the opponent more.
 // heuristic multipliers per red, compounded and clamped. no reds -> factors are 1 (no change).
+function goalsRemainingFrac(minute){ const m=Math.min(Math.max(minute,0),90); const G=(m + m*m/180)/135; return Math.min(Math.max(1-G,0),1); }  // goals don't arrive uniformly — scoring intensity climbs through the match (final 15 the heaviest), so more expected goals remain than a linear clock says (e.g. ~58% left at half, not 50%)
 function redAdj(la,lb,rh,ra){ const RS=0.70, RO=1.30, cl=x=>Math.max(0.35,Math.min(2.2,x));
   return [ la*cl(Math.pow(RS,rh)*Math.pow(RO,ra)), lb*cl(Math.pow(RS,ra)*Math.pow(RO,rh)) ]; }
 function inPlayAdvance(hc,ac,hs,as,minute,redH,redA){
   const mm=modelMatch(hc,ac);
-  const frac=Math.min(Math.max((90-minute)/90,0),1);
+  const frac=goalsRemainingFrac(minute);
   let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,redH||0,redA||0); lar=a[0]; lbr=a[1]; }
   const K=9; let pH=0,pD=0;
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,lar)*poisP(j,lbr); const fh=hs+i,fa=as+j; if(fh>fa)pH+=p; else if(fh===fa)pD+=p; }
@@ -2318,7 +2391,7 @@ function renderScoreboard(){
 /* ---------- game tracker: full live model odds ---------- */
 function inPlayOdds(hc,ac,hs,as,minute,redH,redA){
   const mm=modelMatch(hc,ac);
-  const frac=Math.min(Math.max((90-minute)/90,0),1);
+  const frac=goalsRemainingFrac(minute);
   let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,redH||0,redA||0); lar=a[0]; lbr=a[1]; }
   const K=10;
   let pH=0,pD=0,pA=0,pOver=0; const cont={};
@@ -2433,7 +2506,8 @@ function renderBuilder(){
   let mtbl='<table class="mkt"><tr><th>Market — '+T[BB.hc].name+' vs '+T[BB.ac].name+' · neutral</th><th style="text-align:right">Model</th><th style="text-align:right">Fair</th><th></th></tr>';
   rows.forEach(([cat,items])=>{ mtbl+='<tr><td class="cat" colspan="4">'+cat+'</td></tr>';
     items.forEach(([label,p])=>{ const idx=BB._mkts.length; BB._mkts.push({label,p});
-      mtbl+='<tr><td>'+label+'</td><td class="pct">'+(p*100).toFixed(1)+'%</td><td class="odd">'+fairAm(p)+'</td><td class="addc"><button class="bbadd" data-idx="'+idx+'">+ add</button></td></tr>'; }); });
+      let hint=''; if(/2-1 \/ 3-1 \/ 4-1/.test(label))hint=' <span class="mkthint">· needs the other side to score exactly 1</span>'; else if(/1-0 \/ 2-0 \/ 3-0/.test(label))hint=' <span class="mkthint">· needs a clean sheet</span>';
+      mtbl+='<tr><td>'+label+hint+'</td><td class="pct">'+(p*100).toFixed(1)+'%</td><td class="odd">'+fairAm(p)+'</td><td class="addc"><button class="bbadd" data-idx="'+idx+'">+ add</button></td></tr>'; }); });
   mtbl+='</table>';
   const fx=bbFixtures();
   const quick = fx.length? '<div class="bbquick">'+fx.map(f=>'<div class="bbqp" data-h="'+f.hc+'" data-a="'+f.ac+'">'+T[f.hc].name+' v '+T[f.ac].name+'</div>').join('')+'</div>' : '';
@@ -2501,6 +2575,9 @@ function slLegStatus(l){
   return {st:'live',score:bg+'\u2013'+og,onTrack:hit};
 }
 function slTicketP(tk){ return tk.legs.length?tk.legs.reduce((p,l)=>p*slLegP(l),1):0; }
+// what a leg requires: which team(s) must score, and which must be kept scoreless
+function slLegNeed(l){ const Tm=slTeam(l), O=(l.side==='h'?l.a:l.h);
+  return l.bkt==='nil' ? {score:[Tm], blank:[O]} : {score:[Tm,O], blank:[]}; }
 function slTicketStatus(tk){ if(!tk.legs.length)return 'empty'; let miss=false,allhit=true,live=false;
   tk.legs.forEach(l=>{const s=slLegStatus(l); if(s.st==='miss')miss=true; if(s.st!=='hit')allhit=false; if(s.st==='live')live=true;});
   return miss?'dead':allhit?'won':live?'live':'alive'; }
@@ -2515,13 +2592,23 @@ function slCoverage(){
   let maxWin=0; for(let m=1;m<(1<<N);m++){ const sub=[]; for(let i=0;i<N;i++)if(m>>i&1)sub.push(tks[i]); let ok=true;
     for(let i=0;i<sub.length&&ok;i++)for(let j=i+1;j<sub.length&&ok;j++)if(!compat(sub[i],sub[j]))ok=false; if(ok)maxWin=Math.max(maxWin,sub.length); }
   const probs=tks.map(slTicketP), exp=probs.reduce((a,b)=>a+b,0);
-  return {spof,maxWin,probs,exp,mutex:maxWin<=1&&N>1}; }
+  // scoring conditions every ticket shares: if one fails, the whole slate dies (the outcome you have no cover for)
+  let sScore=null, sBlank=null;
+  tks.forEach(tk=>{ const sc=new Set(), bl=new Set();
+    tk.legs.forEach(l=>{ if(!T[l.h]||!T[l.a])return; const nd=slLegNeed(l); nd.score.forEach(x=>sc.add(x)); nd.blank.forEach(x=>bl.add(x)); });
+    sScore = sScore===null ? sc : new Set([...sScore].filter(x=>sc.has(x)));
+    sBlank = sBlank===null ? bl : new Set([...sBlank].filter(x=>bl.has(x))); });
+  let sharedScore=[...(sScore||[])], sharedBlank=[...(sBlank||[])];
+  sharedScore=sharedScore.filter(x=>!sharedBlank.includes(x)); sharedBlank=sharedBlank.filter(x=>!sScore||!sharedScore.includes(x));
+  return {spof,maxWin,probs,exp,mutex:maxWin<=1&&N>1,sharedScore,sharedBlank}; }
 function slGameOpts(cur){ const opts=[], seen={};
   PARLAY_TIES.forEach(t=>{const k=t.h+'|'+t.a; seen[k]=1; opts.push([k,(T[t.h]?T[t.h].name:t.h)+'\u2013'+(T[t.a]?T[t.a].name:t.a)]);});
   if(cur&&!seen[cur]){ const p=cur.split('|'); opts.unshift([cur,(T[p[0]]?T[p[0]].name:p[0])+'\u2013'+(T[p[1]]?T[p[1]].name:p[1])]); }
   return opts.map(o=>'<option value="'+o[0]+'" '+(o[0]===cur?'selected':'')+'>'+o[1]+'</option>').join(''); }
 function slLegRow(ti,li,l){
   const cur=l.h+'|'+l.a, st=slLegStatus(l), p=slLegP(l);
+  const opp=l.side==='h'?l.a:l.h, oppNm=T[opp]?T[opp].name:opp;
+  const cond=l.bkt==='nil'?'needs '+oppNm+' kept scoreless':'needs '+oppNm+' to score exactly 1';
   const sideOpts='<option value="h" '+(l.side==='h'?'selected':'')+'>'+(T[l.h]?T[l.h].name:l.h)+'</option><option value="a" '+(l.side==='a'?'selected':'')+'>'+(T[l.a]?T[l.a].name:l.a)+'</option>';
   const bktOpts='<option value="nil" '+(l.bkt==='nil'?'selected':'')+'>to nil (1-0/2-0/3-0)</option><option value="one" '+(l.bkt==='one'?'selected':'')+'>win, concede 1 (2-1/3-1/4-1)</option>';
   const stTxt=st.st==='hit'?'\u2713 hit '+(st.score||''):st.st==='miss'?'\u2717 miss '+(st.score||''):st.st==='live'?('\u25cf '+(st.score||'')+(st.onTrack?' \u2713':'')):'';
@@ -2531,9 +2618,31 @@ function slLegRow(ti,li,l){
   return '<div class="slleg"><select class="slG" data-tk="'+ti+'" data-li="'+li+'">'+slGameOpts(cur)+'</select>'
     +'<select class="slSide" data-tk="'+ti+'" data-li="'+li+'">'+sideOpts+'</select>'
     +'<select class="slBkt" data-tk="'+ti+'" data-li="'+li+'">'+bktOpts+'</select>'
+    +'<span class="slcond">'+cond+'</span>'
     +'<span class="slp">'+(p*100).toFixed(1)+'%</span>'
     +(stTxt?'<span class="slst" style="background:'+stBg+';color:'+stCol+'">'+stTxt+'</span>':'')
     +'<button class="slx" data-tk="'+ti+'" data-li="'+li+'" title="remove leg">\u2715</button></div>';
+}
+let efRows=[{h:'',a:'',pp:['','','']},{h:'',a:'',pp:['','','']},{h:'',a:'',pp:['','','']},{h:'',a:'',pp:['','','']}];
+function computeEdgeFinder(){
+  const out=document.getElementById('efOut'); if(!out)return;
+  const dec=v=>{ const s=(v||'').trim().replace('+',''); return s!==''&&!isNaN(parseFloat(s))?amToDec(parseFloat(s)):null; };
+  const all=[];
+  efRows.forEach(r=>{ if(!r.h||!r.a||r.h===r.a)return;
+    const dH=dec(r.pp[0]),dD=dec(r.pp[1]),dA=dec(r.pp[2]); if(!dH||!dD||!dA)return;
+    const R=1/dH+1/dD+1/dA, md=modelMatch(r.h,r.a), gm=T[r.h].name+' v '+T[r.a].name;
+    [[T[r.h].name+' win',md.ph,(1/dH)/R,dH],['Draw',md.pd,(1/dD)/R,dD],[T[r.a].name+' win',md.pa,(1/dA)/R,dA]]
+      .forEach(([nm,mp,fair,d])=>all.push({gm,bet:nm,mp,fair,edge:(mp-fair)*100,ev:(mp*d-1)*100})); });
+  if(!all.length){ out.innerHTML='<p class="note">Pick two teams and enter the three moneyline prices for a game to scan it. Add as many as you are shopping — the biggest model-vs-market gaps rise to the top.</p>'; return; }
+  all.sort((a,b)=>b.edge-a.edge); const TH=3;
+  let tbl='<table class="ctable"><thead><tr><th>Game</th><th>Bet</th><th>Model</th><th>No-vig</th><th>Edge</th><th>EV</th></tr></thead><tbody>';
+  all.forEach(r=>{ const bet=r.edge>=TH;
+    tbl+='<tr'+(bet?' style="background:rgba(74,222,128,0.07)"':'')+'><td>'+r.gm+'</td><td>'+r.bet+(bet?' <span style="color:var(--pos)">◄ bet</span>':'')+'</td>'
+      +'<td class="num">'+(r.mp*100).toFixed(1)+'%</td><td class="num">'+(r.fair*100).toFixed(1)+'%</td>'
+      +'<td class="num" style="font-weight:700;color:'+(r.edge>=0?'var(--pos)':'var(--neg)')+'">'+(r.edge>=0?'+':'')+r.edge.toFixed(1)+'</td>'
+      +'<td class="num '+(r.ev>0?'win':'lose')+'">'+(r.ev>=0?'+':'')+r.ev.toFixed(1)+'%</td></tr>'; });
+  tbl+='</tbody></table>';
+  out.innerHTML=tbl+'<p class="note" style="margin-top:8px">Every outcome across your games, ranked by the model&rsquo;s edge over the no-vig line. <span style="color:var(--pos)">◄ bet</span> flags gaps past +'+TH+' pts — where the model most disagrees with the market. Cross-check the price, then size it in the Staking tab.</p>';
 }
 function renderSlate(){
   const sec=document.getElementById('slate'); if(!sec)return;
@@ -2551,6 +2660,13 @@ function renderSlate(){
   if(nDead||nWon)h+='<div class="slchip"><div class="v">'+nWon+' / '+nAlive+' / '+nDead+'</div><div class="l">won / live / dead</div></div>';
   h+='</div>';
   if(cov.spof.length){ h+='<div class="slspof"><b>\u26a0 Single point of failure.</b> '+cov.spof.map(k=>slLegLabel(keyToLeg(k))).join(' and ')+' '+(cov.spof.length>1?'are':'is')+' in all '+N+' tickets \u2014 if '+(cov.spof.length>1?'either':'it')+' misses, the whole slate dies. Diversifying at least one ticket off '+(cov.spof.length>1?'them':'it')+' would let you survive that single result.</div>'; }
+  if(N>0&&(cov.sharedScore.length||cov.sharedBlank.length)){ const nm=c=>T[c]?T[c].name:c;
+    const bits=[]; if(cov.sharedScore.length)bits.push('<b>'+cov.sharedScore.map(nm).join('</b> and <b>')+'</b> to score');
+    if(cov.sharedBlank.length)bits.push('<b>'+cov.sharedBlank.map(nm).join('</b> and <b>')+'</b> kept scoreless');
+    const one=(cov.sharedScore.length+cov.sharedBlank.length)===1;
+    h+='<div class="sldep"><b>\u26a0 Shared scoring dependency.</b> '+(N>1?'Every ticket':'This ticket')+' needs '+bits.join(', and ')+'. '
+      +'If '+(one?'that doesn\u2019t happen':'any of those fail')+', '+(N>1?'the entire slate loses':'it loses')+' \u2014 that\u2019s the outcome you have <b>no cover for</b>. '
+      +(cov.sharedScore.length?'A \u201cwin, concede 1\u201d band always needs the losing side to score, so a shutout kills it; if you fear a blank, add a to-nil ticket on the other result.':'')+'</div>'; }
   if(cov.mutex){ h+='<div class="slmx"><b>These tickets can produce at most one winner.</b> They diverge on the same game(s), so their winning outcomes are mutually exclusive \u2014 stacking them isn\u2019t covering more ground, it\u2019s taking mutually exclusive shots that all share the leg(s) above. Expected winners '+cov.exp.toFixed(2)+' is exactly your chance of cashing any single one.</div>'; }
   const cols=[], seen={}; slateTickets.forEach(tk=>tk.legs.forEach(l=>{const gk=slGameKey(l); if(!seen[gk]){seen[gk]=1;cols.push({gk,h:l.h,a:l.a});}}));
   if(cols.length){ h+='<table class="slgrid"><thead><tr><th>ticket</th>'+cols.map(c=>'<th>'+c.h+'\u2013'+c.a+'</th>').join('')+'</tr></thead><tbody>';
@@ -2573,7 +2689,9 @@ function renderSlate(){
     h+='</div></div>';
   });
   h+='<button class="slbtn" id="slAddTk">\uff0b add ticket</button>';
-  sec.innerHTML=h;
+  const efRowsHTML=efRows.map((r,ri)=>'<div class="leg" style="border:none;gap:6px;align-items:center;flex-wrap:wrap;padding:2px 0"><select class="efT" data-ef="'+ri+'" data-w="h"><option value="">— home —</option>'+teamOptions(r.h)+'</select><span class="note">v</span><select class="efT" data-ef="'+ri+'" data-w="a"><option value="">— away —</option>'+teamOptions(r.a)+'</select><input class="lp efP" data-ef="'+ri+'" data-p="0" inputmode="numeric" placeholder="H" value="'+r.pp[0]+'" style="width:60px"><input class="lp efP" data-ef="'+ri+'" data-p="1" inputmode="numeric" placeholder="D" value="'+r.pp[1]+'" style="width:60px"><input class="lp efP" data-ef="'+ri+'" data-p="2" inputmode="numeric" placeholder="A" value="'+r.pp[2]+'" style="width:60px"></div>').join('');
+  const efPanel='<div class="panel"><h2>Edge finder — scan the board for model-vs-market gaps</h2><p class="note">Enter the three-way moneyline for any games you are shopping; it strips the vig on each and ranks <b>every outcome across every game</b> by the model&rsquo;s edge over the no-vig line — so the biggest disagreements surface at the top instead of checking ties one at a time.</p>'+efRowsHTML+'<div id="efOut" style="margin-top:10px"></div></div>';
+  sec.innerHTML=h+efPanel;
   const dflt=()=>{const t=PARLAY_TIES[0]||{h:Object.keys(T)[0],a:Object.keys(T)[1]};return {h:t.h,a:t.a,side:'h',bkt:'nil'};};
   sec.querySelectorAll('.slG').forEach(s=>s.addEventListener('change',()=>{const p=s.value.split('|'),l=slateTickets[+s.dataset.tk].legs[+s.dataset.li]; l.h=p[0];l.a=p[1]; renderSlate();}));
   sec.querySelectorAll('.slSide').forEach(s=>s.addEventListener('change',()=>{slateTickets[+s.dataset.tk].legs[+s.dataset.li].side=s.value; renderSlate();}));
@@ -2586,6 +2704,9 @@ function renderSlate(){
   sec.querySelectorAll('.slStake').forEach(i=>i.addEventListener('change',()=>{slateTickets[+i.dataset.tk].stake=i.value; renderSlate();}));
   sec.querySelectorAll('.slOdds').forEach(i=>i.addEventListener('change',()=>{slateTickets[+i.dataset.tk].odds=i.value; renderSlate();}));
   const at=document.getElementById('slAddTk'); if(at)at.addEventListener('click',()=>{slateTickets.push({n:'Ticket '+(slateTickets.length+1),bt:'profit',b:0,stake:'25',odds:'',legs:[dflt()]}); renderSlate();});
+  sec.querySelectorAll('.efT').forEach(s=>s.addEventListener('change',e=>{ const ri=+e.target.dataset.ef; efRows[ri][e.target.dataset.w]=e.target.value; computeEdgeFinder(); }));
+  sec.querySelectorAll('.efP').forEach(i=>i.addEventListener('input',e=>{ const ri=+e.target.dataset.ef; efRows[ri].pp[+e.target.dataset.p]=e.target.value; computeEdgeFinder(); }));
+  computeEdgeFinder();
 }
 
 /* ---------- live results auto-sync (ESPN public FIFA World Cup feed) ---------- */
