@@ -438,8 +438,10 @@
       For live games the Tracker also pulls ESPN's match-detail (gamecast) feed — the same open, keyless host as
       the scoreboard — for two things. First, <b>red cards</b>: a sending-off is the one game-flow event big enough
       to swamp the pre-match rates, so it feeds the model — the down-a-man team's remaining goal rate is cut and the
-      opponent's raised (heuristic multipliers, ~0.70 / 1.30 per red, compounded and clamped). You'll see the model's
-      to-advance and projection jump the moment a red goes up. Second, <b>run-of-play stats</b> — shots, shots on
+      opponent's raised (heuristic multipliers, ~0.70 / 1.30 per red, compounded and clamped). To keep a phantom feed
+      event or a VAR-rescinded card from skewing the projection, a red is <b>debounced</b> — it only feeds the model once
+      it's shown up on two consecutive polls (you'll see a "possible red — confirming" note in the meantime), and if it
+      disappears from the feed the adjustment is retracted on the next poll rather than sticking. Second, <b>run-of-play stats</b> — shots, shots on
       target, possession, corners — shown as context but deliberately kept <i>out</i> of the model; they're noisy and
       laggy, so they inform your read without distorting the projection. Everything else about the run of play (a team
       battering the door down without scoring, momentum, subs) the model still can't see — it reacts to goals, time,
@@ -2419,6 +2421,10 @@ function trackerPanel(g){
     +(rh?'<span class="rc">\uD83D\uDFE5 '+g.home+' \u2192 '+(11-rh)+' men'+((g.redMin&&g.redMin.h)?' ('+g.redMin.h+')':'')+'</span>':'')
     +(ra?'<span class="rc">\uD83D\uDFE5 '+g.away+' \u2192 '+(11-ra)+' men'+((g.redMin&&g.redMin.a)?' ('+g.redMin.a+')':'')+'</span>':'')
     +'<span class="rcn">model adjusted for the extra man</span></div>':'';
+  const pendH=(g.redsPending&&g.redsPending.h)||0, pendA=(g.redsPending&&g.redsPending.a)||0;
+  const redPend=(pendH||pendA)?'<div class="trkred" style="opacity:.7">'
+    +'<span class="rc" style="font-weight:600">\u26A0 possible red \u2014 '+(pendH?g.home:g.away)+' \u2014 confirming on next update</span>'
+    +'<span class="rcn">not yet applied</span></div>':'';
   const st=g.stats, srow=(lab,key)=>{ const hv=(st&&st.h&&st.h[key]!=null)?st.h[key]:null, av=(st&&st.a&&st.a[key]!=null)?st.a[key]:null; return (hv==null&&av==null)?'':'<div class="strow"><span class="sh">'+(hv==null?'\u2014':hv)+'</span><span class="slab">'+lab+'</span><span class="sa">'+(av==null?'\u2014':av)+'</span></div>'; };
   const statsBody=st?[srow('Possession','poss'),srow('Shots','shots'),srow('On target','sot'),srow('Corners','corners')].join(''):'';
   const statsBlock=statsBody?'<div class="trkstats"><div class="lab">Run of play <span class="rcn">context \u00b7 not in the model</span></div>'+statsBody+'</div>':'';
@@ -2426,6 +2432,7 @@ function trackerPanel(g){
    +'<div class="top"><span>'+(g.round||'Knockout')+'</span><span class="lv"><span class="sblive"></span>LIVE'+(g.clk?' \u00b7 '+g.clk:'')+'</span></div>'
    +'<div class="score"><div class="tnm">'+g.home+'</div><div class="sc">'+hs+' \u2013 '+as+'</div><div class="tnm a">'+g.away+'</div></div>'
    +redBanner
+   +redPend
    +wpBar(o.pH,o.pD,o.pA,g.home,g.away)
    +'<div class="trkgrid">'
      +'<div class="trkbox"><div class="lab">To advance</div><div class="val">'+g.home+' '+Math.round(o.advH*100)+'%'+trkDelta(o.advH,o.preAdvH)+'</div><div class="sub">'+g.away+' '+Math.round(o.advA*100)+'%</div></div>'
@@ -2770,8 +2777,8 @@ async function syncLive(){
       else if(st.state==='in'){ LIVE.anyLive=true; stripLive.push({home:hName,away:aName,hs:H.score,as:A.score,clk:clk||'LIVE'}); }
       games.push(g);
     });
-    const prevEnrich={}; (LIVE.games||[]).forEach(g=>{ if(g.id&&(g.reds||g.stats))prevEnrich[g.id]={reds:g.reds,stats:g.stats,redMin:g.redMin}; });
-    games.forEach(g=>{ if(g.id&&prevEnrich[g.id]){ g.reds=prevEnrich[g.id].reds; g.stats=prevEnrich[g.id].stats; g.redMin=prevEnrich[g.id].redMin; } });
+    const prevEnrich={}; (LIVE.games||[]).forEach(g=>{ if(g.id&&(g.reds||g.stats||g._redsRaw))prevEnrich[g.id]={reds:g.reds,stats:g.stats,redMin:g.redMin,_redsRaw:g._redsRaw,redsPending:g.redsPending}; });
+    games.forEach(g=>{ if(g.id&&prevEnrich[g.id]){ const e=prevEnrich[g.id]; g.reds=e.reds; g.stats=e.stats; g.redMin=e.redMin; g._redsRaw=e._redsRaw; g.redsPending=e.redsPending; } });
     games.sort((a,b)=>a.ms-b.ms); LIVE.games=games;
     const eloChanged=recomputeElo(games);
     if(eloChanged){ for(const k in _advCache)delete _advCache[k]; _bracketRows=null; }
@@ -2799,8 +2806,8 @@ function parseSummary(j){
   const reds={h:0,a:0}, redMin={h:null,a:null};
   const evs = Array.isArray(j.keyEvents)?j.keyEvents : (Array.isArray(j.commentary)?j.commentary : []);
   evs.forEach(e=>{ try{
-    const tt=((e.type&&(e.type.text||e.type.name))||e.text||'').toString();
-    if(!/red/i.test(tt))return;                       // "Red Card" and "Yellow-Red Card" (2nd yellow)
+    const typeTxt=((e.type&&(e.type.text||e.type.name))||'').toString();           // event TYPE only — never free-text commentary
+    if(!/red\s*card|second\s*yellow|sending[-\s]?off/i.test(typeTxt))return;        // real dismissals only ("Red Card"/"Yellow-Red Card"); blocks narration like "credited"/"reduced"/"occurred"
     let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
     if(side==='h'||side==='a'){ reds[side]++; const cv=e.clock&&(e.clock.displayValue||e.clock.value); if(cv&&redMin[side]==null)redMin[side]=(''+cv).trim(); }
   }catch(_){}});
@@ -2827,7 +2834,14 @@ async function enrichLiveGames(){
   await Promise.all(live.map(async g=>{
     try{ const r=await fetch(SUMMARY_URL(g.id),{cache:'no-store'}); if(!r.ok)return;
       const p=parseSummary(await r.json());
-      if(p){ g.reds=p.reds; g.redMin=p.redMin; g.stats=p.stats; changed=true; }
+      if(p){
+        // debounce: a red only feeds the model once seen on TWO consecutive polls; if it vanishes (VAR rescind / phantom feed event) it drops on the very next poll
+        const raw=p.reds, prev=g._redsRaw||{h:0,a:0};
+        const conf={h:Math.min(raw.h,prev.h||0), a:Math.min(raw.a,prev.a||0)};
+        g._redsRaw=raw;
+        g.redsPending={h:Math.max(0,raw.h-conf.h), a:Math.max(0,raw.a-conf.a)};
+        g.reds=conf; g.redMin=p.redMin; g.stats=p.stats; changed=true;
+      }
     }catch(e){}
   }));
   if(changed) refreshSB();
