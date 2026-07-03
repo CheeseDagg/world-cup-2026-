@@ -792,6 +792,7 @@ function formBadge(ab){ const t=T[ab]; return `<span class="form">Elo <b>${t.elo
 
 /* ----- Elo -> Poisson match model ----- */
 const L_AVG=1.24, MU_LO=1.8, MU_HI=3.2, ATT_SHRINK=0.65, DC_RHO=-0.13;   // base rate + shrinkage; DC_RHO is the Dixon-Coles draw correction (calibrated on 80 completed matches)
+const DOG_FLOOR=0.55;   // a dominated team's goal rate is floored at this fraction of its NATURAL attack rate (attack vs opp defense), never near-zero — so heavy underdogs still score realistically (~25-35%) instead of the old 0.02 "never scores" artifact
 const HOST=new Set(['USA','CAN','MEX']), HOST_ELO=70;   // 2026 hosts play in their own country; standard home-crowd Elo edge, applied automatically vs non-hosts (host-vs-host cancels)
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 function poisP(k,l){ let p=Math.exp(-l); for(let i=1;i<=k;i++)p*=l/i; return p; }
@@ -804,9 +805,10 @@ function modelMatch(h,a,eloAdj=0){
   const th=T[h], ta=T[a];
   if(eloAdj===0){ const hH=HOST.has(h), aH=HOST.has(a); if(hH&&!aH)eloAdj=HOST_ELO; else if(aH&&!hH)eloAdj=-HOST_ELO; }  // auto host-nation home edge; an explicit eloAdj (e.g. Matchup Lab toggle) overrides it
   const sh=x=>1+ATT_SHRINK*(x-1);   // regress 3-game att/def toward 1.0 so a blowout (e.g. 5-0 vs the weakest side) doesn't over-drive the total
-  const mu=clamp(L_AVG*sh(th.att)*sh(ta.def) + L_AVG*sh(ta.att)*sh(th.def), MU_LO, MU_HI);  // total from (shrunk) attack/defense
+  const natH=L_AVG*sh(th.att)*sh(ta.def), natA=L_AVG*sh(ta.att)*sh(th.def);  // each side's natural attack expectation (its attack vs the opponent's defense)
+  const mu=clamp(natH + natA, MU_LO, MU_HI);  // total from (shrunk) attack/defense
   const s=solveS(weElo(th.elo+eloAdj,ta.elo), mu);                          // supremacy from Elo (+home adj)
-  const la=Math.max((mu+s)/2,0.02), lb=Math.max((mu-s)/2,0.02), K=11, M=[];   // floor BOTH goal rates exactly as the solver does — a huge Elo gap (either direction) can drive one rate negative; without the floor the Poisson grid breaks (probabilities outside [0,1])
+  const la=Math.max((mu+s)/2, DOG_FLOOR*natH), lb=Math.max((mu-s)/2, DOG_FLOOR*natA), K=11, M=[];   // FIX: a big Elo gap can drive one side's raw rate negative; floor each at DOG_FLOOR of its NATURAL attack rate rather than the old ~0.02 — so a heavy underdog still scores at a realistic rate instead of "never", while the favorite's rate stays supremacy-driven
   // Dixon-Coles low-score correction: independent Poisson under-predicts draws (~21% vs ~28% observed); DC_RHO<0 lifts 0-0/1-1 and trims 1-0/0-1 to match the real draw rate, then renormalize
   const tau=(i,j)=> (i===0&&j===0)?1-la*lb*DC_RHO : (i===0&&j===1)?1+la*DC_RHO : (i===1&&j===0)?1+lb*DC_RHO : (i===1&&j===1)?1-DC_RHO : 1;
   let Z=0; for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++){const p=poisP(i,la)*poisP(j,lb)*tau(i,j); M[i][j]=p; Z+=p;}}
