@@ -801,14 +801,16 @@ function resExp(s,mu,K=11){ const la=Math.max((mu+s)/2,0.02), lb=Math.max((mu-s)
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){const p=poisP(i,la)*poisP(j,lb); if(i>j)ph+=p; else if(i===j)pd+=p;}
   return ph+0.5*pd; }
 function solveS(we,mu){ let lo=-5,hi=5; for(let n=0;n<46;n++){const m=(lo+hi)/2; if(resExp(m,mu)<we)lo=m; else hi=m;} return (lo+hi)/2; }
-function modelMatch(h,a,eloAdj=0){
+function modelMatch(h,a,eloAdj=0,formH=1,formA=1){
   const th=T[h], ta=T[a];
   if(eloAdj===0){ const hH=HOST.has(h), aH=HOST.has(a); if(hH&&!aH)eloAdj=HOST_ELO; else if(aH&&!hH)eloAdj=-HOST_ELO; }  // auto host-nation home edge; an explicit eloAdj (e.g. Matchup Lab toggle) overrides it
   const sh=x=>1+ATT_SHRINK*(x-1);   // regress 3-game att/def toward 1.0 so a blowout (e.g. 5-0 vs the weakest side) doesn't over-drive the total
   const natH=L_AVG*sh(th.att)*sh(ta.def), natA=L_AVG*sh(ta.att)*sh(th.def);  // each side's natural attack expectation (its attack vs the opponent's defense)
   const mu=clamp(natH + natA, MU_LO, MU_HI);  // total from (shrunk) attack/defense
   const s=solveS(weElo(th.elo+eloAdj,ta.elo), mu);                          // supremacy from Elo (+home adj)
-  const la=Math.max((mu+s)/2, DOG_FLOOR*natH), lb=Math.max((mu-s)/2, DOG_FLOOR*natA), K=11, M=[];   // FIX: a big Elo gap can drive one side's raw rate negative; floor each at DOG_FLOOR of its NATURAL attack rate rather than the old ~0.02 — so a heavy underdog still scores at a realistic rate instead of "never", while the favorite's rate stays supremacy-driven
+  let la=Math.max((mu+s)/2, DOG_FLOOR*natH), lb=Math.max((mu-s)/2, DOG_FLOOR*natA);   // FIX: a big Elo gap can drive one side's raw rate negative; floor each at DOG_FLOOR of its NATURAL attack rate rather than the old ~0.02 — so a heavy underdog still scores at a realistic rate instead of "never", while the favorite's rate stays supremacy-driven
+  la*=formH; lb*=formA;   // form/sharpness multiplier (Matchup Lab eye-test dial): scales a side's finishing without moving supremacy — a team creating chances but not converting, or one flat/misfiring, that ratings can't see. 1 = neutral.
+  const K=11, M=[];
   // Dixon-Coles low-score correction: independent Poisson under-predicts draws (~21% vs ~28% observed); DC_RHO<0 lifts 0-0/1-1 and trims 1-0/0-1 to match the real draw rate, then renormalize
   const tau=(i,j)=> (i===0&&j===0)?1-la*lb*DC_RHO : (i===0&&j===1)?1+la*DC_RHO : (i===1&&j===0)?1+lb*DC_RHO : (i===1&&j===1)?1-DC_RHO : 1;
   let Z=0; for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++){const p=poisP(i,la)*poisP(j,lb)*tau(i,j); M[i][j]=p; Z+=p;}}
@@ -1659,6 +1661,7 @@ function computeStaking(){
 let labH='ARG', labA='ESP', labHome='0';
 let devH='', devD='', devA='', devMkt='1x2', labBlend='50', labAdj='0';
 let labSettle='90', ankH='', ankX='', ankA='';   // score-grid settlement (90'/ET) + optional market 1X2 anchor
+let formH='0', formA='0';   // eye-test form dial per side (percent, -30..+30), scales finishing separate from Elo
 const DEV_MKTS={'1x2':'Match result','adv':'To advance','ou':'Over/Under 2.5','btts':'Both teams to score'};
 function devDefs(md,th,ta){
   return devMkt==='1x2' ? [[th.name,md.ph,'devH'],['Draw',md.pd,'devD'],[ta.name,md.pa,'devA']]
@@ -1696,23 +1699,26 @@ function teamOptions(sel){ return Object.entries(T).sort((a,b)=>a[1].name.locale
 function renderLab(){
   const sec=document.getElementById('lab');
   const eloAdj=(labHome==='h'?100:labHome==='a'?-100:0)+(parseFloat(labAdj)||0);   // home-site bump + manual team-news nudge (injury, keeper change, rest)
-  const md=modelMatch(labH,labA,eloAdj), th=T[labH], ta=T[labA], ph=md.ph,pd=md.pd,pa=md.pa;
+  const fH=1+(parseFloat(formH)||0)/100, fA=1+(parseFloat(formA)||0)/100;           // eye-test finishing dials
+  const md=modelMatch(labH,labA,eloAdj,fH,fA), th=T[labH], ta=T[labA], ph=md.ph,pd=md.pd,pa=md.pa;
   const outs=[['h',th.name+' win',ph],['d','Draw',pd],['a',ta.name+' win',pa],['ah',th.name+' advance',md.advH],['aa',ta.name+' advance',md.advA],['over','Over 2.5',md.over],['under','Under 2.5',md.under],['by','BTTS Yes',md.btts],['bn','BTTS No',md.nobtts]];
   // ---- score-grid pipeline: Dixon-Coles grid -> optional market anchor -> optional ET convolution ----
-  // (previously plain Poisson, which understated draws vs the outcome bar; now consistent with the model)
+  // (previously plain Poisson, which understated draws vs the outcome bar; now consistent with the model.
+  // md.la/md.lb already carry the eye-test finishing dials via modelMatch, so the grid inherits them.)
   const N=6, KK=15, G=[]; { const K=11; let Z=0;
     const tau=(i,j)=>(i===0&&j===0)?1-md.la*md.lb*DC_RHO:(i===0&&j===1)?1+md.la*DC_RHO:(i===1&&j===0)?1+md.lb*DC_RHO:(i===1&&j===1)?1-DC_RHO:1;
     for(let i=0;i<KK;i++){ G[i]=[]; for(let j=0;j<KK;j++) G[i][j]=0; }
     for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,md.la)*poisP(j,md.lb)*tau(i,j); G[i][j]=p; Z+=p; }
     for(let i=0;i<K;i++)for(let j=0;j<K;j++) G[i][j]/=Z; }
   let gridTag='';
+  if(formH!=='0'||formA!=='0') gridTag='eye-test dial: '+T[labH].name+' '+(formH>=0?'+':'')+formH+'% / '+T[labA].name+' '+(formA>=0?'+':'')+formA+'%';
   { // market anchor: devig the entered 1X2 and re-hang the score shape on the market's outcome masses
     const oh=parseFloat((ankH||'').replace('+','')), ox=parseFloat((ankX||'').replace('+','')), oa=parseFloat((ankA||'').replace('+',''));
     if(!isNaN(oh)&&!isNaN(ox)&&!isNaN(oa)){
       const inv=[1/amToDec(oh),1/amToDec(ox),1/amToDec(oa)], z=inv[0]+inv[1]+inv[2], c=inv.map(x=>x/z);
       let mh=0,mx=0,ma=0; for(let i=0;i<KK;i++)for(let j=0;j<KK;j++){ if(i>j)mh+=G[i][j]; else if(i===j)mx+=G[i][j]; else ma+=G[i][j]; }
       if(mh>0&&mx>0&&ma>0){ for(let i=0;i<KK;i++)for(let j=0;j<KK;j++) G[i][j]*= i>j? c[0]/mh : i===j? c[1]/mx : c[2]/ma;
-        gridTag='market-anchored → '+labH+' '+(c[0]*100).toFixed(0)+'% / draw '+(c[1]*100).toFixed(0)+'% / '+labA+' '+(c[2]*100).toFixed(0)+'%'; } }
+        gridTag=(gridTag?gridTag+' · ':'')+'market-anchored → '+labH+' '+(c[0]*100).toFixed(0)+'% / draw '+(c[1]*100).toFixed(0)+'% / '+labA+' '+(c[2]*100).toFixed(0)+'%'; } }
   }
   if(labSettle==='et'){ // convolve drawn scorelines with a 30-min ET at 0.8x pace (ET runs slower than regulation)
     const lh=md.la/3*0.8, lb2=md.lb/3*0.8, add=[];
@@ -1759,7 +1765,7 @@ function renderLab(){
   let h=`<div class="panel"><h2>Matchup lab — any team vs any team</h2>
     <p class="note">Run the model on any pairing in the field — look ahead to a possible bracket matchup, price a hypothetical
     final, or settle a "who'd win". Same Elo→Poisson engine as the Matches tab. Neutral by default; set a home side to add the
-    standard +100-Elo home bump — also how to handle the hosts (USA, Mexico, Canada) on days they play at home. The <b>team-news nudge</b> lets you hand-adjust for what the model can't see — a star ruled out, a keeper change, a rested XI — where ~100 Elo is roughly a key starter or a goal of quality. The <b>score settlement</b> switch reprices every scoreline artifact below for 90-minute or extra-time-inclusive books, and the optional <b>market anchor</b> re-hangs the model's score shape on a book's devigged 1X2 — the sharpest read when a real line exists.</p>
+    standard +100-Elo home bump — also how to handle the hosts (USA, Mexico, Canada) on days they play at home. The <b>team-news nudge</b> lets you hand-adjust for what the model can't see — a star ruled out, a keeper change, a rested XI — where ~100 Elo is roughly a key starter or a goal of quality. The <b>score settlement</b> switch reprices every scoreline artifact below for 90-minute or extra-time-inclusive books, and the optional <b>market anchor</b> re-hangs the model's score shape on a book's devigged 1X2 — the sharpest read when a real line exists. The <b>form / sharpness</b> dials are the eye test the ratings can't see: nudge a side's finishing up or down (creating chances but not converting, or looking flat and misfiring) <i>without</i> changing who's favored — pure conversion, not supremacy.</p>
     <div class="leg" style="border:none;padding-top:4px">
       <select id="labH">${teamOptions(labH)}</select><span class="note">vs</span><select id="labA">${teamOptions(labA)}</select>
       <select id="labHome"><option value="0" ${labHome==='0'?'selected':''}>neutral site</option>
@@ -1778,6 +1784,15 @@ function renderLab(){
       <input id="ankH" class="lp" inputmode="numeric" placeholder="${labH} ml" style="width:72px" value="${ankH}">
       <input id="ankX" class="lp" inputmode="numeric" placeholder="draw" style="width:64px" value="${ankX}">
       <input id="ankA" class="lp" inputmode="numeric" placeholder="${labA} ml" style="width:72px" value="${ankA}">
+    </div>
+
+    <div class="leg" style="border:none;align-items:center;gap:8px;padding-top:2px;flex-wrap:wrap">
+      <span class="note" style="width:auto">Form / sharpness — the eye test</span>
+      <span class="note" style="width:auto;color:var(--gold)">${th.name}</span>
+      <input type="range" id="formH" min="-30" max="30" step="5" value="${formH}" style="max-width:130px">
+      <span class="note" style="width:auto;color:#5ec8e0">${ta.name}</span>
+      <input type="range" id="formA" min="-30" max="30" step="5" value="${formA}" style="max-width:130px">
+      <span class="note" style="width:auto" id="formLbl">${(formH==='0'&&formA==='0')?'neutral':(th.name+' '+(formH>=0?'+':'')+formH+'% · '+ta.name+' '+(formA>=0?'+':'')+formA+'%')}</span>
     </div>
     <div class="barwrap" style="margin-top:14px"><div class="bar">
       <div class="seg h" style="width:${ph*100}%">${ph>=.11?(ph*100).toFixed(0)+'%':''}</div>
@@ -1834,8 +1849,8 @@ function renderLab(){
     </div>
     <div id="devOut" style="margin-top:10px"></div></div>`;
   sec.innerHTML=h;
-  document.getElementById('labH').addEventListener('change',e=>{labH=e.target.value; devH=devD=devA=''; ankH=ankX=ankA=''; renderLab();});
-  document.getElementById('labA').addEventListener('change',e=>{labA=e.target.value; devH=devD=devA=''; ankH=ankX=ankA=''; renderLab();});
+  document.getElementById('labH').addEventListener('change',e=>{labH=e.target.value; devH=devD=devA=''; ankH=ankX=ankA=''; formH=formA='0'; renderLab();});
+  document.getElementById('labA').addEventListener('change',e=>{labA=e.target.value; devH=devD=devA=''; ankH=ankX=ankA=''; formH=formA='0'; renderLab();});
   document.getElementById('labHome').addEventListener('change',e=>{labHome=e.target.value; renderLab();});
   const laEl=document.getElementById('labAdj');
   if(laEl){ laEl.addEventListener('input',e=>{ const v=e.target.value, lbl=document.getElementById('labAdjLbl'); if(lbl)lbl.innerHTML=v==='0'?'none — ~100 Elo ≈ a key starter':(Math.abs(parseFloat(v))+' Elo → '+(parseFloat(v)>0?th.name:ta.name)); });
@@ -1843,6 +1858,8 @@ function renderLab(){
   const stSel=document.getElementById('labSettle'); if(stSel)stSel.addEventListener('change',e=>{ labSettle=e.target.value; renderLab(); });
   const akWire=(id,set)=>{ const el=document.getElementById(id); if(el)el.addEventListener('change',e=>{ set(e.target.value); renderLab(); }); };
   akWire('ankH',v=>ankH=v); akWire('ankX',v=>ankX=v); akWire('ankA',v=>ankA=v);
+  const fmWire=(id,set)=>{ const el=document.getElementById(id); if(el){ el.addEventListener('input',e=>{ set(e.target.value); const l=document.getElementById('formLbl'); if(l)l.innerHTML=(formH==='0'&&formA==='0')?'neutral':(th.name+' '+(formH>=0?'+':'')+formH+'% · '+ta.name+' '+(formA>=0?'+':'')+formA+'%'); }); el.addEventListener('change',()=>renderLab()); } };
+  fmWire('formH',v=>formH=v); fmWire('formA',v=>formA=v);
   const kSel=document.getElementById('kSel'), kPrice=document.getElementById('kPrice'), kOut=document.getElementById('kOut');
   const kCalc=()=>{ const o=outs[+kSel.value], p=o[2], raw=(kPrice.value||'').trim().replace('+','');
     if(raw===''||isNaN(parseFloat(raw))){ kOut.innerHTML=''; return; }
@@ -2391,6 +2408,48 @@ function inPlayAdvance(hc,ac,hs,as,minute,redH,redA){
   for(let i=0;i<K;i++)for(let j=0;j<K;j++){ const p=poisP(i,lar)*poisP(j,lbr); const fh=hs+i,fa=as+j; if(fh>fa)pH+=p; else if(fh===fa)pD+=p; }
   return {live:pH+0.5*pD, pre:mm.advH};
 }
+/* ---------- live leg-probability engine: P(a bet still lands | current state) ---------- */
+// remaining-goals grid keyed on the SAME in-play model (goalsRemainingFrac + red adj).
+// pass a settlement mode: '90' stops at full time, 'et' folds a 0.8x ET into any drawn finish.
+function liveGrid(hc,ac,hs,as,minute,redH,redA){
+  const mm=modelMatch(hc,ac), frac=goalsRemainingFrac(minute);
+  let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,redH||0,redA||0); lar=a[0]; lbr=a[1]; }
+  const K=9, add=[]; // final-score distribution P[fh][fa] over the rest of regulation
+  const F={}; const put=(i,j,p)=>{ (F[i]=F[i]||{}); F[i][j]=(F[i][j]||0)+p; };
+  for(let i=0;i<K;i++)for(let j=0;j<K;j++) put(hs+i, as+j, poisP(i,lar)*poisP(j,lbr));
+  return {F, la:mm.la, lb:mm.lb};
+}
+// evaluate a leg against a final-score distribution. leg forms below.
+function legProb(hc,ac,hs,as,minute,redH,redA,leg,settle){
+  const g=liveGrid(hc,ac,hs,as,minute,redH,redA), F=g.F;
+  // optional ET: for finals that are level, convolve a 30-min 0.8x-pace mini-match
+  let dist=F;
+  if(settle==='et'){
+    const lh=g.la/3*0.8, lb2=g.lb/3*0.8, D={}; const put=(i,j,p)=>{ (D[i]=D[i]||{}); D[i][j]=(D[i][j]||0)+p; };
+    for(const i in F)for(const j in F[i]){ const p=F[i][j]; if(+i===+j){ for(let k=0;k<5;k++)for(let l=0;l<5;l++) put(+i+k,+j+l,p*poisP(k,lh)*poisP(l,lb2)); } else put(+i,+j,p); }
+    dist=D;
+  }
+  let s=0;
+  for(const i in dist)for(const j in dist[i]){ const fh=+i,fa=+j,p=dist[i][j];
+    if(leg.k==='cs'){ if(fh===leg.h&&fa===leg.a)s+=p; }
+    else if(leg.k==='hband'){ if(fa===0&&fh>=1&&fh<=3)s+=p; }        // home 1-0/2-0/3-0
+    else if(leg.k==='aband'){ if(fh===0&&fa>=1&&fa<=3)s+=p; }        // away 0-1/0-2/0-3
+    else if(leg.k==='hcon1'){ if(fa===1&&fh>=2&&fh<=4)s+=p; }        // home 2-1/3-1/4-1
+    else if(leg.k==='acon1'){ if(fh===1&&fa>=2&&fa<=4)s+=p; }        // away 1-2/1-3/1-4
+    else if(leg.k==='draw'){ if(fh===fa)s+=p; }
+    else if(leg.k==='hwin'){ if(fh>fa)s+=p; }
+    else if(leg.k==='awin'){ if(fa>fh)s+=p; }
+    else if(leg.k==='btts'){ if(fh>=1&&fa>=1)s+=p; }
+    else if(leg.k==='nbtts'){ if(fh===0||fa===0)s+=p; }
+    else if(leg.k==='over'){ if(fh+fa>leg.line)s+=p; }
+    else if(leg.k==='under'){ if(fh+fa<leg.line)s+=p; }
+  }
+  return s;
+}
+const LEG_LABELS={cs:'correct score',hband:'win 1-0/2-0/3-0',aband:'win 1-0/2-0/3-0',hcon1:'win 2-1/3-1/4-1',acon1:'win 2-1/3-1/4-1',draw:'draw',hwin:'to win',awin:'to win',btts:'both score',nbtts:'clean sheet',over:'over',under:'under'};
+// user's tracked parlay legs, persisted
+let SLIP=(function(){ try{ return JSON.parse(localStorage.getItem('wc_slip')||'[]'); }catch(_){ return []; } })();
+function saveSlip(){ try{ localStorage.setItem('wc_slip',JSON.stringify(SLIP)); }catch(_){} }
 /* ---------- scoreboard (the day's games, from the live feed) ---------- */
 let sbDay=null;
 function localDateKey(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -2518,16 +2577,82 @@ function renderTracker(){
     ?'Live odds are unavailable — the live feed couldn’t be reached.<br>The rest of the tool works from saved data.'
     :'Loading live games from the feed…')+'</div>'; return; }
   const liveG=games.filter(g=>g.state==='in');
+  let out=slipPanel();
   if(liveG.length){
-    sec.innerHTML='<p class="note" style="margin:2px 0 14px">Live model odds — recomputed from the score and clock on every refresh (~30s while a game is on). ▲▼ shows the shift from the pre-match number.</p>'+liveG.map(trackerPanel).join('');
+    out+='<p class="note" style="margin:2px 0 14px">Live model odds — recomputed from the score and clock on every refresh (~30s while a game is on). ▲▼ shows the shift from the pre-match number.</p>'+liveG.map(trackerPanel).join('');
   } else {
     const up=games.filter(g=>g.state==='pre').sort((a,b)=>a.ms-b.ms).slice(0,3);
     const fin=games.filter(g=>g.state==='post'&&g.winnerName).sort((a,b)=>b.ms-a.ms).slice(0,3);
-    let h='<p class="note" style="margin:2px 0 14px">No game is live right now. Next up, with the model’s pre-match odds:</p>';
-    h+= up.length? up.map(upcomingPanel).join('') : '<div class="sbnote">No upcoming knockout games in the feed window.</div>';
-    if(fin.length) h+='<h2 style="font-size:13px;color:var(--mut);font-weight:700;letter-spacing:.02em;margin:18px 0 10px">Just finished</h2>'+fin.map(finishedPanel).join('');
-    sec.innerHTML=h;
+    out+='<p class="note" style="margin:2px 0 14px">No game is live right now. Next up, with the model’s pre-match odds:</p>';
+    out+= up.length? up.map(upcomingPanel).join('') : '<div class="sbnote">No upcoming knockout games in the feed window.</div>';
+    if(fin.length) out+='<h2 style="font-size:13px;color:var(--mut);font-weight:700;letter-spacing:.02em;margin:18px 0 10px">Just finished</h2>'+fin.map(finishedPanel).join('');
   }
+  sec.innerHTML=out;
+  wireSlip();
+}
+/* ---------- My Slip: live probability of each parlay leg + the joint ticket ---------- */
+function gameStateFor(hc,ac){
+  const g=(LIVE.games||[]).find(x=> (x.hc===hc&&x.ac===ac)||(x.hc===ac&&x.ac===hc) );
+  if(!g) return null;
+  const flip=(g.hc===ac); const hs=parseInt(g.hs,10)||0, as=parseInt(g.as,10)||0;
+  const rh=(g.reds&&g.reds.h)||0, ra=(g.reds&&g.reds.a)||0;
+  return { state:g.state, min: g.state==='in'?clkMin(g.clk):(g.state==='post'?90:0),
+    hs: flip?as:hs, as: flip?hs:as, rh: flip?ra:rh, ra: flip?rh:ra };
+}
+function slipPanel(){
+  let rows='', jointLive=1, jointPre=1, anyLive=false, allResolvable=true;
+  SLIP.forEach((leg,idx)=>{
+    const th=T[leg.hc], ta=T[leg.ac]; if(!th||!ta){ return; }
+    const st=gameStateFor(leg.hc,leg.ac);
+    // pre-match probability (minute 0, 0-0)
+    const pre=legProb(leg.hc,leg.ac,0,0,0,0,0,leg,leg.settle);
+    let live=pre, tag='pre-match', cls='mut';
+    if(st){
+      if(st.state==='in'){ live=legProb(leg.hc,leg.ac,st.hs,st.as,st.min,st.rh,st.ra,leg,leg.settle); anyLive=true;
+        tag=`live ${st.hs}-${st.as} · ${st.min}'`; cls='pos'; }
+      else if(st.state==='post'){ live=legProb(leg.hc,leg.ac,st.hs,st.as,90,st.rh,st.ra,leg,leg.settle); const hit=live>0.5; tag=`FT ${st.hs}-${st.as} · ${hit?'✓ hit':'✗ miss'}`; cls=hit?'pos':'neg'; live=hit?1:0; }
+    }
+    jointLive*=live; jointPre*=pre;
+    const dp=(live-pre)*100, arrow= Math.abs(dp)<0.5?'':(dp>0?`<span style="color:var(--pos)">▲${dp.toFixed(0)}</span>`:`<span style="color:var(--neg)">▼${Math.abs(dp).toFixed(0)}</span>`);
+    const nm = (leg.k==='draw')? th.name+' vs '+ta.name
+      : (leg.k==='hwin'||leg.k==='hband'||leg.k==='hcon1')? th.name
+      : (leg.k==='awin'||leg.k==='aband'||leg.k==='acon1')? ta.name
+      : (leg.k==='cs')? th.name+' '+leg.h+'-'+leg.a+' '+ta.name : th.name+' vs '+ta.name;
+    const desc = leg.k==='cs'?'correct score': (leg.k==='over'||leg.k==='under')? LEG_LABELS[leg.k]+' '+leg.line : LEG_LABELS[leg.k];
+    rows+=`<div class="strow" style="align-items:center;gap:8px">
+      <span style="flex:1"><b>${nm}</b> <span class="note" style="width:auto">${desc}${leg.settle==='et'?' · ET':''}</span><br>
+      <span class="note" style="width:auto;color:var(--${cls})">${tag}</span></span>
+      <span style="text-align:right;min-width:96px"><b style="font-size:15px">${(live*100).toFixed(live>0&&live<1?1:0)}%</b> ${arrow}<br>
+      <span class="note" style="width:auto">was ${(pre*100).toFixed(0)}%</span></span>
+      <button class="mini slip-x" data-i="${idx}" style="width:auto;padding:2px 7px">✕</button></div>`;
+  });
+  const teamOpts=sel=>Object.keys(T).sort((a,b)=>T[a].name.localeCompare(T[b].name)).map(k=>`<option value="${k}" ${sel===k?'selected':''}>${T[k].name}</option>`).join('');
+  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score…']];
+  const head = SLIP.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>Parlay — all legs</b><br><span class="note" style="width:auto">${anyLive?'updating live':'pre-match'}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(jointLive*100).toFixed(jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${jointLive>0?Math.round(1/jointLive).toLocaleString():'∞'} · was 1-in-${jointPre>0?Math.round(1/jointPre).toLocaleString():'∞'}</span></span></div>`:'';
+  return `<div class="panel"><h2>My slip — live leg tracker</h2>
+    <p class="note">Add the legs you actually bet; each one shows its <b>live probability of still landing</b> given the current score and clock (same in-play engine as the odds below — non-linear scoring intensity, red-card adjustment). ▲▼ is the move since kickoff. The joint line is your whole ticket's live chance. Legs persist on this device.</p>
+    ${rows||'<div class="note" style="padding:6px 0">No legs yet — add one below.</div>'}${head}
+    <div class="leg" style="border:none;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center">
+      <select id="slHc">${teamOpts('BRA')}</select><span class="note" style="width:auto">v</span><select id="slAc">${teamOpts('NOR')}</select>
+      <select id="slKind">${legKinds.map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')}</select>
+      <span id="slCsWrap" style="display:none"><input id="slCsH" class="lp" inputmode="numeric" placeholder="H" style="width:40px">-<input id="slCsA" class="lp" inputmode="numeric" placeholder="A" style="width:40px"></span>
+      <select id="slSettle"><option value="90">90 min</option><option value="et">incl. ET</option></select>
+      <button class="mini" id="slAdd" style="width:auto">+ add leg</button>
+    </div></div>`;
+}
+function wireSlip(){
+  const add=document.getElementById('slAdd'); if(!add)return;
+  const kind=document.getElementById('slKind'), csw=document.getElementById('slCsWrap');
+  if(kind)kind.addEventListener('change',()=>{ csw.style.display=kind.value==='cs'?'inline':'none'; });
+  add.addEventListener('click',()=>{
+    const hc=document.getElementById('slHc').value, ac=document.getElementById('slAc').value, k=kind.value, settle=document.getElementById('slSettle').value;
+    if(hc===ac)return;
+    const leg={hc,ac,k,settle};
+    if(k==='cs'){ leg.h=parseInt(document.getElementById('slCsH').value,10)||0; leg.a=parseInt(document.getElementById('slCsA').value,10)||0; }
+    if(k==='over'||k==='under')leg.line=2.5;
+    SLIP.push(leg); saveSlip(); renderTracker();
+  });
+  document.querySelectorAll('.slip-x').forEach(b=>b.addEventListener('click',()=>{ SLIP.splice(+b.dataset.i,1); saveSlip(); renderTracker(); }));
 }
 /* ---------- bet builder: per-leg model probabilities + combined ---------- */
 function marketRows(hc,ac,mktTotal){
