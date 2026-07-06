@@ -2681,7 +2681,13 @@ function marketRows(hc,ac,mktTotal){
   ];
 }
 const BB={hc:null,ac:null,legs:[],bookOdds:'',boost:0,marketTotal:'',_mkts:[]};
-function bbFixtures(){ const seen={},out=[]; (LIVE.games||[]).forEach(g=>{ if(g.hc&&g.ac&&T[g.hc]&&T[g.ac]){ const k=g.hc+'|'+g.ac; if(!seen[k]){seen[k]=1;out.push({hc:g.hc,ac:g.ac});} } }); return out.slice(0,12); }
+function bbFixtures(){ const seen={},out=[];
+  const gs=(LIVE.games||[]).filter(g=>g.hc&&g.ac&&T[g.hc]&&T[g.ac]);
+  const pick=list=>{ list.forEach(g=>{ const k=g.hc+'|'+g.ac; if(!seen[k]){seen[k]=1;out.push({hc:g.hc,ac:g.ac});} }); };
+  pick(gs.filter(g=>g.state==='in'));                    /* live now, first */
+  pick(gs.filter(g=>g.state==='pre'));                   /* upcoming, soonest first (list is asc by ms) */
+  pick(gs.filter(g=>g.state==='post').slice().reverse());/* most recent finished as fill */
+  return out.slice(0,12); }
 function renderBuilder(){
   const sec=document.getElementById('builder'); if(!sec)return;
   const teams=Object.entries(T).map(([c,t])=>({c,n:t.name})).sort((a,b)=>a.n.localeCompare(b.n));
