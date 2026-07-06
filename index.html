@@ -1485,7 +1485,7 @@ function renderParlay(){
     ? `<span class="note">refund worth</span><input class="lp" id="bonusv" inputmode="decimal" placeholder="70" value="${parlayBonus}" style="width:44px"><span class="note">%</span>`
     : `<span class="note" style="color:var(--mut2)">free bet — keep only the profit if it wins</span>`;
   let h=`<div class="panel"><h2>Parlay &amp; boost calculator</h2>
-    <p class="note">Stack legs from the model across all 14 upcoming Round-of-32 ties — now with <b>ten markets</b> per leg
+    <p class="note">Stack legs from the model across every upcoming knockout tie (auto-synced from the live schedule) — now with <b>ten markets</b> per leg
     (result, double chance, three totals lines, BTTS, clean sheet, winning margin, the correct-score combos, and to-advance)
     — or add manual legs, enter your book's price, and read the true combined edge. Same-match legs are priced with
     <b>correlation</b> from the Poisson grid, not naive multiplication. The promo box handles a <b>profit boost</b>,
@@ -2912,6 +2912,26 @@ function mapTeam(t){ if(!t)return null;
 function brParticipants(id){ const m=BRX[id]; if(!m)return [null,null];
   const side=x=> (typeof x==='string'&&T[x])?x : (RESULT_LOCKS[x]||(BRX[x]&&BRX[x].lock)||null);
   return [side(m.a), side(m.b)]; }
+function refillUpcomingTies(results){
+  /* keep PARLAY_TIES + DATA.matches stocked with the current round: live + upcoming
+     fixtures from the feed that don't have results yet. Idempotent per sync. */
+  const have={}; PARLAY_TIES.forEach(t=>{have[t.h<t.a?t.h+'|'+t.a:t.a+'|'+t.h]=1;});
+  const haveM={}; DATA.matches.forEach(m=>{haveM[m.h<m.a?m.h+'|'+m.a:m.a+'|'+m.h]=1;});
+  let added=0;
+  (LIVE.games||[]).forEach(g=>{
+    if(!(g.state==='pre'||g.state==='in'))return;
+    if(!(g.hc&&g.ac&&T[g.hc]&&T[g.ac])||g.hc===g.ac)return;
+    const k=g.hc<g.ac?g.hc+'|'+g.ac:g.ac+'|'+g.hc;
+    if(results&&results[k])return;
+    if(!have[k]){ have[k]=1; PARLAY_TIES.push({h:g.hc,a:g.ac}); added++; }
+    if(!haveM[k]){ haveM[k]=1;
+      const md=modelMatch(g.hc,g.ac), d=new Date(g.ms);
+      const ko=isNaN(d.getTime())?'':d.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+      DATA.matches.push({round:g.round||'Knockout', ko:ko, h:g.hc, a:g.ac, ph:+(md.ph*100).toFixed(1), pd:+(md.pd*100).toFixed(1), pa:+(md.pa*100).toFixed(1)});
+    }
+  });
+  return added;
+}
 function applyLiveResults(results){
   let applied=0, changed=false; const byRound={};
   Object.values(BRX).forEach(m=>{ (byRound[m.r]=byRound[m.r]||[]).push(m); });
@@ -2927,6 +2947,7 @@ function applyLiveResults(results){
     for(let i=DATA.matches.length-1;i>=0;i--){ const m=DATA.matches[i], k=m.h<m.a?m.h+'|'+m.a:m.a+'|'+m.h; if(results[k])DATA.matches.splice(i,1); }
     _bracketRows=null;
   }
+  if(refillUpcomingTies(results) && typeof rerenderActive==='function') rerenderActive();
   return applied;
 }
 const LIVE={state:'idle',updated:null,n:0};
