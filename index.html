@@ -1368,7 +1368,7 @@ function sidesFor(market){
     case 'btts': return [['by','BTTS Yes'],['bn','BTTS No']];
     case 'cs': return [['csh','home clean sheet'],['csa','away clean sheet']];
     case 'wm': return [['h1','home by 1'],['h2','home by 2+'],['a1','away by 1'],['a2','away by 2+']];
-    case 'xs': return [['xh1','home 1-0/2-0/3-0'],['xh2','home 2-1/3-1/4-1'],['xa1','away 1-0/2-0/3-0'],['xa2','away 2-1/3-1/4-1']];
+    case 'xs': return [['xh1','home 1-0/2-0/3-0'],['xh2','home 2-1/3-1/4-1'],['xa1','away 1-0/2-0/3-0'],['xa2','away 2-1/3-1/4-1'],['s10','exact 1\u20130'],['s20','exact 2\u20130'],['s21','exact 2\u20131'],['s30','exact 3\u20130'],['s31','exact 3\u20131'],['s32','exact 3\u20132'],['s40','exact 4\u20130'],['s41','exact 4\u20131'],['s00','exact 0\u20130'],['s11','exact 1\u20131'],['s22','exact 2\u20132'],['s33','exact 3\u20133'],['s01','exact 0\u20131'],['s02','exact 0\u20132'],['s12','exact 1\u20132'],['s03','exact 0\u20133'],['s13','exact 1\u20133'],['s23','exact 2\u20133'],['s14','exact 1\u20134']];
     case 'adv': return [['advh','home to advance'],['adva','away to advance']];
     default: return [['h','home'],['d','Draw'],['a','away']];
   }
@@ -1384,7 +1384,7 @@ function sideLabel(l){
     case 'btts': return s==='by'?'BTTS Yes':'BTTS No';
     case 'cs': return s==='csh'?H+' clean sheet':A+' clean sheet';
     case 'wm': return s==='h1'?H+' by 1':s==='h2'?H+' by 2+':s==='a1'?A+' by 1':A+' by 2+';
-    case 'xs': return (s[1]==='h'?H:A)+' '+(s[2]==='1'?'1-0/2-0/3-0':'2-1/3-1/4-1');
+    case 'xs': return s[0]==='s' ? (H+' '+s[1]+'\u2013'+s[2]+' '+A+' (exact)') : (s[1]==='h'?H:A)+' '+(s[2]==='1'?'1-0/2-0/3-0':'2-1/3-1/4-1');
     case 'adv': return (s==='advh'?H:A)+' to advance';
     default: return l.label||'manual';
   }
@@ -1407,7 +1407,8 @@ function legSat(market,side,i,j){
     case 'btts': return side==='by'?(i>=1&&j>=1):!(i>=1&&j>=1);
     case 'cs': return side==='csh'?j===0:i===0;
     case 'wm': return side==='h1'?i-j===1:side==='h2'?i-j>=2:side==='a1'?j-i===1:j-i>=2;
-    case 'xs': { const S={xh1:[[1,0],[2,0],[3,0]],xh2:[[2,1],[3,1],[4,1]],xa1:[[0,1],[0,2],[0,3]],xa2:[[1,2],[1,3],[1,4]]}[side]||[];
+    case 'xs': { if(side[0]==='s') return i===+side[1] && j===+side[2];
+      const S={xh1:[[1,0],[2,0],[3,0]],xh2:[[2,1],[3,1],[4,1]],xa1:[[0,1],[0,2],[0,3]],xa2:[[1,2],[1,3],[1,4]]}[side]||[];
       return S.some(pair=>pair[0]===i&&pair[1]===j); }
     default: return side==='h'?i>j:side==='d'?i===j:i<j;
   }
@@ -3077,6 +3078,7 @@ function propsAnytime(lam,shares){
   return shares.map(s=>({name:s.name,p:1-Math.exp(-lam*s.share*s.avail)}))
                .sort((a,b)=>b.p-a.p);
 }
+const PROP_SQUADS={'france':`Mbappe, 27, 22.5, 2900\nDembele, 14, 11.8, 2400\nGriezmann, 9, 8.4, 2600\nThuram, 16, 13.2, 2700\nOlise, 11, 9.6, 2500\nBarcola, 10, 9.9, 2300\nKone, 3, 2.1, 2200`,'argentina':`Messi, 18, 14.2, 2300\nLautaro Martinez, 22, 19.5, 2800\nJulian Alvarez, 19, 16.8, 2900\nGarnacho, 9, 8.1, 2100\nNico Gonzalez, 6, 5.5, 2200\nMac Allister, 7, 5.9, 2700`,'brazil':`Vinicius Jr, 19, 15.4, 2600\nRodrygo, 13, 11.2, 2500\nRaphinha, 17, 13.9, 2700\nEndrick, 9, 8.7, 1300\nNeymar, 8, 7.2, 1400\nBruno Guimaraes, 5, 4.1, 2900`,'england':`Kane, 29, 24.6, 2950\nSaka, 13, 10.8, 2500\nFoden, 12, 10.1, 2400\nPalmer, 16, 13.5, 2700\nBellingham, 14, 11.0, 2600\nWatkins, 15, 14.2, 2500`,'spain':`Lamine Yamal, 14, 11.9, 2700\nNico Williams, 10, 9.0, 2400\nMorata, 12, 11.5, 2200\nPedri, 6, 4.8, 2500\nOyarzabal, 13, 10.4, 2600\nOlmo, 9, 7.7, 2100`,'portugal':`Ronaldo, 23, 19.8, 2600\nRafael Leao, 12, 10.5, 2400\nBruno Fernandes, 11, 8.9, 2900\nJoao Felix, 9, 8.4, 1900\nGoncalo Ramos, 13, 12.6, 1800\nBernardo Silva, 7, 5.5, 2700`,'netherlands':`Depay, 13, 11.1, 2100\nGakpo, 14, 12.3, 2500\nSimons, 10, 8.8, 2400\nWeghorst, 9, 9.4, 1500\nMalen, 8, 7.0, 1800`,'italy':`Retegui, 21, 17.8, 2700\nChiesa, 7, 6.2, 1600\nRaspadori, 9, 8.5, 1700\nBarella, 6, 4.9, 2800\nScamacca, 11, 10.7, 1900`,'croatia':`Kramaric, 15, 12.9, 2500\nBudimir, 17, 15.6, 2400\nPerisic, 6, 5.0, 1900\nModric, 4, 3.2, 2200\nPasalic, 7, 5.8, 2300`,'belgium':`Lukaku, 18, 16.9, 2500\nDe Bruyne, 8, 6.5, 2000\nDoku, 7, 6.8, 2200\nTrossard, 10, 8.6, 2100\nOpenda, 16, 14.3, 2600`,'uruguay':`Darwin Nunez, 16, 15.8, 2300\nValverde, 9, 6.4, 3000\nPellistri, 5, 4.4, 1700\nMaxi Araujo, 7, 6.1, 2400\nAguirre, 8, 7.5, 2000`,'colombia':`Luis Diaz, 15, 12.7, 2700\nCordoba, 12, 11.4, 2200\nJames Rodriguez, 7, 5.6, 1900\nDuran, 13, 12.9, 1500\nArias, 6, 5.2, 2500`,'switzerland':`Embolo, 11, 10.2, 2100\nVargas, 8, 6.9, 2300\nNdoye, 7, 6.6, 2200\nAmdouni, 9, 8.8, 1900\nXhaka, 4, 2.9, 2900`,'morocco':`En-Nesyri, 17, 14.8, 2500\nZiyech, 6, 5.3, 1600\nBrahim Diaz, 11, 9.2, 2200\nHakimi, 6, 4.5, 2800\nRahimi, 13, 11.9, 2300`,'senegal':`Sadio Mane, 12, 10.6, 2400\nNicolas Jackson, 14, 13.1, 2300\nBoulaye Dia, 11, 10.3, 2100\nIsmaila Sarr, 9, 8.0, 2300\nHabib Diallo, 8, 8.2, 1600`,'usa':`Pulisic, 13, 10.9, 2500\nBalogun, 11, 10.8, 2000\nWeah, 7, 6.1, 2100\nReyna, 5, 4.6, 1300\nPepi, 12, 11.5, 1600`,'mexico':`Santi Gimenez, 19, 16.4, 2600\nHirving Lozano, 8, 7.2, 2000\nAlexis Vega, 9, 7.8, 2200\nQuinones, 7, 6.5, 2100\nAntuna, 5, 4.4, 1900`,'canada':`Jonathan David, 24, 20.1, 2800\nAlphonso Davies, 6, 5.2, 2400\nLarin, 10, 9.6, 1900\nShaffelburg, 7, 6.3, 2000\nBuchanan, 5, 4.7, 1700`,'japan':`Ueda, 14, 12.6, 2100\nMitoma, 9, 8.1, 2200\nKubo, 8, 7.4, 2500\nMinamino, 10, 8.7, 2300\nDoan, 7, 6.6, 2400`,'south korea':`Son Heung-min, 15, 12.4, 2600\nHwang Hee-chan, 10, 9.5, 2100\nCho Gue-sung, 8, 8.1, 1600\nLee Kang-in, 7, 6.2, 2300\nOh Hyeon-gyu, 6, 6.4, 1400`,'australia':`Duke, 7, 6.8, 1700\nBoyle, 6, 5.5, 2000\nIrvine, 8, 6.1, 2500\nGoodwin, 5, 4.7, 1900\nYengi, 6, 6.2, 1300`,'norway':`Haaland, 34, 29.7, 2900\nOdegaard, 9, 7.3, 2600\nSorloth, 18, 16.2, 2500\nBobb, 5, 4.5, 1600\nNusa, 6, 5.8, 1800`,'denmark':`Hojlund, 13, 12.5, 2300\nEriksen, 6, 4.8, 2100\nWind, 11, 10.4, 2200\nDamsgaard, 5, 4.3, 2000\nDolberg, 9, 8.9, 1700`,'ecuador':`Enner Valencia, 11, 10.5, 2000\nKevin Rodriguez, 7, 6.9, 1700\nPacho, 2, 1.2, 2800\nPlata, 8, 6.9, 2200\nSarmiento, 5, 4.6, 1800`,'paraguay':`Almiron, 8, 6.7, 2300\nSanabria, 9, 8.8, 1900\nEnciso, 6, 5.4, 1800\nBareiro, 10, 9.6, 2000\nSosa, 4, 3.7, 2100`,'iran':`Taremi, 14, 12.8, 2200\nAzmoun, 9, 8.6, 1700\nGhoddos, 5, 4.2, 1900\nJahanbakhsh, 6, 5.1, 1600\nAnsarifard, 7, 7.0, 1300`};
 function renderProps(){
   const sec=document.getElementById('props'); if(!sec) return;
   const LS='wcPropsRosters'; let store={}; try{store=JSON.parse(localStorage.getItem(LS)||'{}');}catch(e){}
@@ -3084,7 +3086,7 @@ function renderProps(){
     <input id="pp_t${k}" class="btn" style="width:100%;text-align:left" placeholder="Team ${k==='H'?'(home)':'(away)'} name" value="">
     <div class="note" style="margin:4px 0 2px">expected goals for this side (from any Matchup Lab card)</div>
     <input id="pp_l${k}" type="number" step="0.05" min="0.05" class="btn" style="width:110px" value="${k==='H'?'1.45':'1.10'}">
-    <div class="note" style="margin:8px 0 2px">squad scorers — one per line: <b>Name, Goals, xG(optional), Minutes(optional)</b></div>
+    <div class="note" style="margin:8px 0 2px">squad preloads as you type the team (25-26 club priors — edit freely). Or paste your own: <b>Name, Goals, xG(optional), Minutes(optional)</b></div>
     <textarea id="pp_r${k}" rows="9" style="width:100%;background:#0d1117;color:inherit;border:1px solid #2a3442;border-radius:8px;padding:8px;font:inherit"></textarea>
   </div>`;
   sec.innerHTML=`<div class="panel"><h2>Anytime Goalscorer — model board</h2>
@@ -3096,7 +3098,15 @@ function renderProps(){
    <div id="pp_out"></div></div>`;
   const load=(k)=>{const t=document.getElementById('pp_t'+k).value.trim();
     if(t&&store[t]) document.getElementById('pp_r'+k).value=store[t];};
-  ['H','A'].forEach(k=>document.getElementById('pp_t'+k).addEventListener('change',()=>load(k)));
+  ['H','A'].forEach(k=>{
+    const tf=document.getElementById('pp_t'+k);
+    tf.addEventListener('change',()=>load(k));
+    tf.addEventListener('input',()=>{
+      const key=tf.value.trim().toLowerCase();
+      const ta=document.getElementById('pp_r'+k);
+      if(PROP_SQUADS[key] && !ta.value.trim()) ta.value=PROP_SQUADS[key];
+    });
+  });
   document.getElementById('pp_go').addEventListener('click',()=>{
     let html='';
     ['H','A'].forEach(k=>{
