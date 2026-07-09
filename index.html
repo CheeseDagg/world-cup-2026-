@@ -3097,7 +3097,8 @@ function renderProps(){
    <div class="btnrow" style="margin-top:10px"><button class="btn" id="pp_go">⚽ price both sides</button></div>
    <div id="pp_out"></div></div>`;
   const load=(k)=>{const t=document.getElementById('pp_t'+k).value.trim();
-    if(t&&store[t]) document.getElementById('pp_r'+k).value=store[t];};
+    const ta=document.getElementById('pp_r'+k);
+    if(t&&store[t] && !ta.value.trim()) ta.value=store[t];};
   ['H','A'].forEach(k=>{
     const tf=document.getElementById('pp_t'+k);
     tf.addEventListener('change',()=>load(k));
