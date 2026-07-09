@@ -401,6 +401,7 @@
   <section id="ratings" class="hide"></section>
   <section id="parlay" class="hide"></section>
   <section id="staking" class="hide"></section>
+  <section id="props" class="hide"></section>
   <section id="calibrate" class="hide"></section>
 
   <section id="method" class="hide">
@@ -3054,16 +3055,76 @@ async function enrichLiveGames(){
 }
 function refreshSB(){ const t=curTab; try{ if(t==='scoreboard')renderScoreboard(); else if(t==='tracker')renderTracker(); }catch(e){} }
 function scheduleSync(){ Promise.resolve(syncLive()).then(function(){ if(typeof setTimeout==='function') setTimeout(scheduleSync, LIVE.anyLive?30000:240000); }); }
+
+/* ---------------- PROPS: anytime goalscorer (paste-your-squad) ------------- */
+function propsShares(text){
+  const rows=[];
+  (text||'').split(/\n/).forEach(line=>{
+    const p=line.split(/[,\t]/).map(s=>s.trim());
+    if(p.length<2||!p[0]) return;
+    const goals=parseFloat(p[1]); if(!(goals>=0)) return;
+    const xg=parseFloat(p[2]); const mins=parseFloat(p[3]);
+    rows.push({name:p[0],goals:goals,xg:(xg>=0?xg:goals),mins:(mins>0?mins:900)});
+  });
+  if(!rows.length) return [];
+  const blend=r=>0.6*r.goals+0.4*r.xg;
+  const tot=rows.reduce((s,r)=>s+blend(r),0)||1;
+  const maxm=Math.max.apply(null,rows.map(r=>r.mins))||1;
+  return rows.map(r=>({name:r.name,share:blend(r)/tot,avail:Math.min(r.mins/maxm,1)}))
+             .filter(r=>r.share>0.005).sort((a,b)=>b.share-a.share);
+}
+function propsAnytime(lam,shares){
+  return shares.map(s=>({name:s.name,p:1-Math.exp(-lam*s.share*s.avail)}))
+               .sort((a,b)=>b.p-a.p);
+}
+function renderProps(){
+  const sec=document.getElementById('props'); if(!sec) return;
+  const LS='wcPropsRosters'; let store={}; try{store=JSON.parse(localStorage.getItem(LS)||'{}');}catch(e){}
+  const side=(k)=>`<div style="flex:1;min-width:280px">
+    <input id="pp_t${k}" class="btn" style="width:100%;text-align:left" placeholder="Team ${k==='H'?'(home)':'(away)'} name" value="">
+    <div class="note" style="margin:4px 0 2px">expected goals for this side (from any Matchup Lab card)</div>
+    <input id="pp_l${k}" type="number" step="0.05" min="0.05" class="btn" style="width:110px" value="${k==='H'?'1.45':'1.10'}">
+    <div class="note" style="margin:8px 0 2px">squad scorers — one per line: <b>Name, Goals, xG(optional), Minutes(optional)</b></div>
+    <textarea id="pp_r${k}" rows="9" style="width:100%;background:#0d1117;color:inherit;border:1px solid #2a3442;border-radius:8px;padding:8px;font:inherit"></textarea>
+  </div>`;
+  sec.innerHTML=`<div class="panel"><h2>Anytime Goalscorer — model board</h2>
+   <p class="note">P(scores) = side expected goals × player's blended goal/xG share × availability.
+   A <b>model read from our own goal rates — not a market price</b>; compare to your book and judge the gap.
+   Rosters save in this browser per team name, so it's paste-once per squad.</p>
+   <div style="display:flex;gap:14px;flex-wrap:wrap">${side('H')}${side('A')}</div>
+   <div class="btnrow" style="margin-top:10px"><button class="btn" id="pp_go">⚽ price both sides</button></div>
+   <div id="pp_out"></div></div>`;
+  const load=(k)=>{const t=document.getElementById('pp_t'+k).value.trim();
+    if(t&&store[t]) document.getElementById('pp_r'+k).value=store[t];};
+  ['H','A'].forEach(k=>document.getElementById('pp_t'+k).addEventListener('change',()=>load(k)));
+  document.getElementById('pp_go').addEventListener('click',()=>{
+    let html='';
+    ['H','A'].forEach(k=>{
+      const team=document.getElementById('pp_t'+k).value.trim()||('Team '+k);
+      const lam=parseFloat(document.getElementById('pp_l'+k).value)||1.2;
+      const txt=document.getElementById('pp_r'+k).value;
+      if(txt.trim()){ store[team]=txt; }
+      const board=propsAnytime(lam, propsShares(txt));
+      html+=`<h3 style="margin:14px 0 4px">${team} <span class="note">λ ${lam.toFixed(2)}</span></h3>`;
+      html+= board.length? '<table class="tbl"><tr><th>#</th><th>player</th><th style="text-align:right">anytime %</th></tr>'+
+        board.slice(0,10).map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.name}</b></td><td style="text-align:right"><b>${Math.round(100*r.p)}%</b></td></tr>`).join('')+'</table>'
+        : '<p class="note">paste scorers above.</p>';
+    });
+    try{localStorage.setItem(LS,JSON.stringify(store));}catch(e){}
+    document.getElementById('pp_out').innerHTML=html;
+  });
+}
+
 const GROUPS=[
   ['Live',['scoreboard','tracker']],
   ['Games',['matches','lab']],
   ['Tournament',['bracket','tree','ratings']],
-  ['Betting',['parlay','builder','staking']],
+  ['Betting',['parlay','builder','props','staking']],
   ['More',['calibrate','method']],
 ];
-const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',slate:'Slate',staking:'Staking',calibrate:'Calibrate',method:'Method'};
-const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,slate:renderSlate,staking:renderStaking,calibrate:renderCalibrate};
-const ALLTABS=['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','slate','staking','calibrate','method'];
+const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',slate:'Slate',staking:'Staking',props:'Props',calibrate:'Calibrate',method:'Method'};
+const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,slate:renderSlate,staking:renderStaking,props:renderProps,calibrate:renderCalibrate};
+const ALLTABS=['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','slate','staking','props','calibrate','method'];
 function showTab(tab){
   ALLTABS.forEach(id=>{const el=document.getElementById(id); if(el)el.classList.toggle('hide',id!==tab);});
   curTab=tab; const gi=GROUPS.findIndex(g=>g[1].includes(tab)); if(gi>=0){curGroup=gi;lastTab[gi]=tab;}
