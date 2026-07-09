@@ -1351,7 +1351,7 @@ function renderRatings(){
 let parlayLegs=[{mi:0,market:'1x2',side:'h',price:''},{mi:1,market:'1x2',side:'h',price:''}];
 let parlayBoost='', parlayOvr='', parlayBoostType='profit', parlayBonus='70', parlayStake='';
 let brkType='profit', brkAmt='50', brkRows=[['',''],['',''],['',''],['',''],['','']];
-const MK={'1x2':'Match result','dc':'Double chance','ou15':'O/U 1.5','ou':'O/U 2.5','ou35':'O/U 3.5','btts':'BTTS','cs':'Clean sheet','wm':'Win margin','xs':'Correct score','adv':'To advance'};
+const MK={'1x2':'Match result','dc':'Double chance','ou15':'O/U 1.5','ou':'O/U 2.5','ou35':'O/U 3.5','btts':'BTTS','cs':'Clean sheet','wm':'Win margin','xs':'Correct score','ags':'Goalscorer','adv':'To advance'};
 const amer=d=> d>=2 ? '+'+Math.round((d-1)*100) : ''+Math.round(-100/(d-1));
 // all 14 upcoming R32 ties — parlay legs price off the model, so no feed line is needed
 const PARLAY_TIES=[
@@ -1359,6 +1359,27 @@ const PARLAY_TIES=[
   {h:'ENG',a:'COD'},{h:'BEL',a:'SEN'},{h:'USA',a:'BIH'},{h:'ESP',a:'AUT'},{h:'POR',a:'CRO'},
   {h:'SUI',a:'DZA'},{h:'ARG',a:'CPV'},{h:'COL',a:'GHA'},{h:'AUS',a:'EGY'}
 ];
+
+const ASSISTED_RATE=0.72; // share of goals that carry an assist (stated assumption)
+function propSquadFor(teamName){ const k=(teamName||'').toLowerCase(); return (typeof PROP_SQUADS!=='undefined'&&PROP_SQUADS[k])?PROP_SQUADS[k]:null; }
+function agsPlayers(mi){ const m=PARLAY_TIES[mi]||{}; const out=[];
+  [['h',m.h],['a',m.a]].forEach(([sd,ab])=>{ const nm=(T[ab]&&T[ab].name)||ab||''; const sq=propSquadFor(nm); if(!sq)return;
+    const rows=sq.split('\n').map(l=>l.split(',').map(s=>s.trim())).filter(r=>r.length>=2&&parseFloat(r[1])>=0)
+      .map(r=>({n:r[0],g:+r[1],x:+(r[2]||r[1]),m:+(r[3]||900),a:+(r[4]||0)}));
+    const tot=rows.reduce((s,r)=>s+0.6*r.g+0.4*r.x,0)||1, mx=Math.max(...rows.map(r=>r.m),1);
+    const atot=rows.reduce((s,r)=>s+r.a,0)||1;
+    rows.sort((a,b)=>(0.6*b.g+0.4*b.x)-(0.6*a.g+0.4*a.x)).slice(0,6).forEach(r=>{
+      const av=Math.min(r.m/mx,1);
+      out.push({side:sd, name:r.n, sh:(0.6*r.g+0.4*r.x)/tot*av, ash:(r.a/atot)*av});});
+  });
+  return out;
+}
+function agsLegP(l){ const m=PARLAY_TIES[l.mi]; if(!m)return null;
+  const md=modelMatch(m.h,m.a); const pl=agsPlayers(l.mi).find(p=>('g'+p.side+'_'+p.name)===l.side.slice(0,-1));
+  if(!pl)return null; const tl=(pl.side==='h'?md.la:md.lb);
+  if(l.side.endsWith('A')){ const la=tl*ASSISTED_RATE*pl.ash; return 1-Math.exp(-la); }
+  const lam=tl*pl.sh;
+  return l.side.endsWith('1') ? 1-Math.exp(-lam) : 1-Math.exp(-lam)*(1+lam); }
 function sidesFor(market){
   switch(market){
     case 'dc': return [['1x','home/draw'],['12','home/away'],['x2','draw/away']];
@@ -1384,13 +1405,14 @@ function sideLabel(l){
     case 'btts': return s==='by'?'BTTS Yes':'BTTS No';
     case 'cs': return s==='csh'?H+' clean sheet':A+' clean sheet';
     case 'wm': return s==='h1'?H+' by 1':s==='h2'?H+' by 2+':s==='a1'?A+' by 1':A+' by 2+';
+    case 'ags': { const mm=s.match(/^g[ha]_(.+)([12A])$/); return mm? mm[1]+(mm[2]==='1'?' anytime':mm[2]==='2'?' 2+ goals':' 1+ assist'):'scorer'; }
     case 'xs': return s[0]==='s' ? (H+' '+s[1]+'\u2013'+s[2]+' '+A+' (exact)') : (s[1]==='h'?H:A)+' '+(s[2]==='1'?'1-0/2-0/3-0':'2-1/3-1/4-1');
     case 'adv': return (s==='advh'?H:A)+' to advance';
     default: return l.label||'manual';
   }
 }
 function legLabel(l){ return l.market==='manual'?(l.label||'manual leg'):`${PARLAY_TIES[l.mi].h}–${PARLAY_TIES[l.mi].a} · ${sideLabel(l)}`; }
-function legMarginal(l){
+function legMarginal(l){ if(l.market==='ags')return agsLegP(l);
   if(l.market==='manual'){ const p=parseFloat(l.prob); return isNaN(p)?null:p/100; }
   const m=PARLAY_TIES[l.mi]; if(!m)return null; const md=modelMatch(m.h,m.a);
   if(l.market==='adv')return l.side==='advh'?md.advH:md.advA;
@@ -1416,7 +1438,7 @@ function legSat(market,side,i,j){
 function poissonGrid(la,lb,K=11){ const M=[]; for(let i=0;i<K;i++){M[i]=[];for(let j=0;j<K;j++)M[i][j]=poisP(i,la)*poisP(j,lb);} return M; }
 function parlayProbs(legs){
   const groups={}, manual=[];
-  legs.forEach(l=>{ if(l.market==='manual'||l.market==='adv')manual.push(l); else (groups[l.mi]=groups[l.mi]||[]).push(l); });
+  legs.forEach(l=>{ if(l.market==='manual'||l.market==='adv'||l.market==='ags')manual.push(l); else (groups[l.mi]=groups[l.mi]||[]).push(l); });
   let pCorr=1,pNaive=1,valid=true;
   Object.keys(groups).forEach(mi=>{
     const gl=groups[mi], m=PARLAY_TIES[mi], md=modelMatch(m.h,m.a), G=poissonGrid(md.la,md.lb);
@@ -1437,8 +1459,10 @@ function legRow(l,idx){
       <span class="x" title="remove">✕</span></div>`;
   }
   const matchOpts=PARLAY_TIES.map((mm,i)=>`<option value="${i}" ${i===l.mi?'selected':''}>${mm.h}–${mm.a}</option>`).join('');
-  const mktOpts=['1x2','dc','ou15','ou','ou35','btts','cs','wm','xs','adv'].map(k=>`<option value="${k}" ${k===l.market?'selected':''}>${MK[k]}</option>`).join('');
-  const sideOpts=sidesFor(l.market).map(([k])=>`<option value="${k}" ${k===l.side?'selected':''}>${sideLabel({...l,side:k})}</option>`).join('');
+  const mktOpts=['1x2','dc','ou15','ou','ou35','btts','cs','wm','xs','ags','adv'].map(k=>`<option value="${k}" ${k===l.market?'selected':''}>${MK[k]}</option>`).join('');
+  const sideOpts=(l.market==='ags'
+    ? agsPlayers(l.mi).flatMap(p=>[['g'+p.side+'_'+p.name+'1',p.name+' anytime'],['g'+p.side+'_'+p.name+'2',p.name+' 2+ goals'],['g'+p.side+'_'+p.name+'A',p.name+' 1+ assist']])
+    : sidesFor(l.market)).map(([k,lb])=>`<option value="${k}" ${k===l.side?'selected':''}>${lb||sideLabel({...l,side:k})}</option>`).join('');
   const mp=legMarginal(l);
   return `<div class="leg" data-leg="${idx}">
     <select class="leg-match">${matchOpts}</select>
@@ -1453,7 +1477,7 @@ function readLeg(row,idx){
   if(l.market==='manual'){ l.label=row.querySelector('.man-label').value; l.prob=row.querySelector('.man-prob').value; l.price=row.querySelector('.leg-price').value; return; }
   l.mi=+row.querySelector('.leg-match').value;
   l.market=row.querySelector('.leg-mkt').value;
-  const valid=sidesFor(l.market).map(s=>s[0]); let side=row.querySelector('.leg-side').value;
+  const valid=(l.market==='ags'?agsPlayers(l.mi).flatMap(p=>['g'+p.side+'_'+p.name+'1','g'+p.side+'_'+p.name+'2','g'+p.side+'_'+p.name+'A']):sidesFor(l.market).map(s=>s[0])); let side=row.querySelector('.leg-side').value;
   l.side=valid.includes(side)?side:valid[0];
   l.price=row.querySelector('.leg-price').value;
 }
@@ -3078,7 +3102,7 @@ function propsAnytime(lam,shares){
   return shares.map(s=>({name:s.name,p:1-Math.exp(-lam*s.share*s.avail)}))
                .sort((a,b)=>b.p-a.p);
 }
-const PROP_SQUADS={'france':`Mbappe, 27, 22.5, 2900\nDembele, 14, 11.8, 2400\nGriezmann, 9, 8.4, 2600\nThuram, 16, 13.2, 2700\nOlise, 11, 9.6, 2500\nBarcola, 10, 9.9, 2300\nKone, 3, 2.1, 2200`,'argentina':`Messi, 18, 14.2, 2300\nLautaro Martinez, 22, 19.5, 2800\nJulian Alvarez, 19, 16.8, 2900\nGarnacho, 9, 8.1, 2100\nNico Gonzalez, 6, 5.5, 2200\nMac Allister, 7, 5.9, 2700`,'brazil':`Vinicius Jr, 19, 15.4, 2600\nRodrygo, 13, 11.2, 2500\nRaphinha, 17, 13.9, 2700\nEndrick, 9, 8.7, 1300\nNeymar, 8, 7.2, 1400\nBruno Guimaraes, 5, 4.1, 2900`,'england':`Kane, 29, 24.6, 2950\nSaka, 13, 10.8, 2500\nFoden, 12, 10.1, 2400\nPalmer, 16, 13.5, 2700\nBellingham, 14, 11.0, 2600\nWatkins, 15, 14.2, 2500`,'spain':`Lamine Yamal, 14, 11.9, 2700\nNico Williams, 10, 9.0, 2400\nMorata, 12, 11.5, 2200\nPedri, 6, 4.8, 2500\nOyarzabal, 13, 10.4, 2600\nOlmo, 9, 7.7, 2100`,'portugal':`Ronaldo, 23, 19.8, 2600\nRafael Leao, 12, 10.5, 2400\nBruno Fernandes, 11, 8.9, 2900\nJoao Felix, 9, 8.4, 1900\nGoncalo Ramos, 13, 12.6, 1800\nBernardo Silva, 7, 5.5, 2700`,'netherlands':`Depay, 13, 11.1, 2100\nGakpo, 14, 12.3, 2500\nSimons, 10, 8.8, 2400\nWeghorst, 9, 9.4, 1500\nMalen, 8, 7.0, 1800`,'italy':`Retegui, 21, 17.8, 2700\nChiesa, 7, 6.2, 1600\nRaspadori, 9, 8.5, 1700\nBarella, 6, 4.9, 2800\nScamacca, 11, 10.7, 1900`,'croatia':`Kramaric, 15, 12.9, 2500\nBudimir, 17, 15.6, 2400\nPerisic, 6, 5.0, 1900\nModric, 4, 3.2, 2200\nPasalic, 7, 5.8, 2300`,'belgium':`Lukaku, 18, 16.9, 2500\nDe Bruyne, 8, 6.5, 2000\nDoku, 7, 6.8, 2200\nTrossard, 10, 8.6, 2100\nOpenda, 16, 14.3, 2600`,'uruguay':`Darwin Nunez, 16, 15.8, 2300\nValverde, 9, 6.4, 3000\nPellistri, 5, 4.4, 1700\nMaxi Araujo, 7, 6.1, 2400\nAguirre, 8, 7.5, 2000`,'colombia':`Luis Diaz, 15, 12.7, 2700\nCordoba, 12, 11.4, 2200\nJames Rodriguez, 7, 5.6, 1900\nDuran, 13, 12.9, 1500\nArias, 6, 5.2, 2500`,'switzerland':`Embolo, 11, 10.2, 2100\nVargas, 8, 6.9, 2300\nNdoye, 7, 6.6, 2200\nAmdouni, 9, 8.8, 1900\nXhaka, 4, 2.9, 2900`,'morocco':`En-Nesyri, 17, 14.8, 2500\nZiyech, 6, 5.3, 1600\nBrahim Diaz, 11, 9.2, 2200\nHakimi, 6, 4.5, 2800\nRahimi, 13, 11.9, 2300`,'senegal':`Sadio Mane, 12, 10.6, 2400\nNicolas Jackson, 14, 13.1, 2300\nBoulaye Dia, 11, 10.3, 2100\nIsmaila Sarr, 9, 8.0, 2300\nHabib Diallo, 8, 8.2, 1600`,'usa':`Pulisic, 13, 10.9, 2500\nBalogun, 11, 10.8, 2000\nWeah, 7, 6.1, 2100\nReyna, 5, 4.6, 1300\nPepi, 12, 11.5, 1600`,'mexico':`Santi Gimenez, 19, 16.4, 2600\nHirving Lozano, 8, 7.2, 2000\nAlexis Vega, 9, 7.8, 2200\nQuinones, 7, 6.5, 2100\nAntuna, 5, 4.4, 1900`,'canada':`Jonathan David, 24, 20.1, 2800\nAlphonso Davies, 6, 5.2, 2400\nLarin, 10, 9.6, 1900\nShaffelburg, 7, 6.3, 2000\nBuchanan, 5, 4.7, 1700`,'japan':`Ueda, 14, 12.6, 2100\nMitoma, 9, 8.1, 2200\nKubo, 8, 7.4, 2500\nMinamino, 10, 8.7, 2300\nDoan, 7, 6.6, 2400`,'south korea':`Son Heung-min, 15, 12.4, 2600\nHwang Hee-chan, 10, 9.5, 2100\nCho Gue-sung, 8, 8.1, 1600\nLee Kang-in, 7, 6.2, 2300\nOh Hyeon-gyu, 6, 6.4, 1400`,'australia':`Duke, 7, 6.8, 1700\nBoyle, 6, 5.5, 2000\nIrvine, 8, 6.1, 2500\nGoodwin, 5, 4.7, 1900\nYengi, 6, 6.2, 1300`,'norway':`Haaland, 34, 29.7, 2900\nOdegaard, 9, 7.3, 2600\nSorloth, 18, 16.2, 2500\nBobb, 5, 4.5, 1600\nNusa, 6, 5.8, 1800`,'denmark':`Hojlund, 13, 12.5, 2300\nEriksen, 6, 4.8, 2100\nWind, 11, 10.4, 2200\nDamsgaard, 5, 4.3, 2000\nDolberg, 9, 8.9, 1700`,'ecuador':`Enner Valencia, 11, 10.5, 2000\nKevin Rodriguez, 7, 6.9, 1700\nPacho, 2, 1.2, 2800\nPlata, 8, 6.9, 2200\nSarmiento, 5, 4.6, 1800`,'paraguay':`Almiron, 8, 6.7, 2300\nSanabria, 9, 8.8, 1900\nEnciso, 6, 5.4, 1800\nBareiro, 10, 9.6, 2000\nSosa, 4, 3.7, 2100`,'iran':`Taremi, 14, 12.8, 2200\nAzmoun, 9, 8.6, 1700\nGhoddos, 5, 4.2, 1900\nJahanbakhsh, 6, 5.1, 1600\nAnsarifard, 7, 7.0, 1300`};
+const PROP_SQUADS={'france':`Mbappe, 27, 22.5, 2900, 6\nDembele, 14, 11.8, 2400, 12\nGriezmann, 9, 8.4, 2600, 9\nThuram, 16, 13.2, 2700, 5\nOlise, 11, 9.6, 2500, 11\nBarcola, 10, 9.9, 2300, 8\nKone, 3, 2.1, 2200, 4`,'argentina':`Messi, 18, 14.2, 2300, 14\nLautaro Martinez, 22, 19.5, 2800, 4\nJulian Alvarez, 19, 16.8, 2900, 6\nGarnacho, 9, 8.1, 2100, 5\nNico Gonzalez, 6, 5.5, 2200, 4\nMac Allister, 7, 5.9, 2700, 8`,'brazil':`Vinicius Jr, 19, 15.4, 2600, 9\nRodrygo, 13, 11.2, 2500, 8\nRaphinha, 17, 13.9, 2700, 11\nEndrick, 9, 8.7, 1300, 2\nNeymar, 8, 7.2, 1400, 6\nBruno Guimaraes, 5, 4.1, 2900, 7`,'england':`Kane, 29, 24.6, 2950, 8\nSaka, 13, 10.8, 2500, 11\nFoden, 12, 10.1, 2400, 9\nPalmer, 16, 13.5, 2700, 10\nBellingham, 14, 11.0, 2600, 8\nWatkins, 15, 14.2, 2500, 7`,'spain':`Lamine Yamal, 14, 11.9, 2700, 13\nNico Williams, 10, 9.0, 2400, 7\nMorata, 12, 11.5, 2200, 3\nPedri, 6, 4.8, 2500, 8\nOyarzabal, 13, 10.4, 2600, 6\nOlmo, 9, 7.7, 2100, 7`,'portugal':`Ronaldo, 23, 19.8, 2600, 4\nRafael Leao, 12, 10.5, 2400, 9\nBruno Fernandes, 11, 8.9, 2900, 12\nJoao Felix, 9, 8.4, 1900, 6\nGoncalo Ramos, 13, 12.6, 1800, 3\nBernardo Silva, 7, 5.5, 2700, 9`,'netherlands':`Depay, 13, 11.1, 2100, 5\nGakpo, 14, 12.3, 2500, 8\nSimons, 10, 8.8, 2400, 9\nWeghorst, 9, 9.4, 1500, 2\nMalen, 8, 7.0, 1800, 4`,'italy':`Retegui, 21, 17.8, 2700, 3\nChiesa, 7, 6.2, 1600, 4\nRaspadori, 9, 8.5, 1700, 3\nBarella, 6, 4.9, 2800, 7\nScamacca, 11, 10.7, 1900, 2`,'croatia':`Kramaric, 15, 12.9, 2500, 6\nBudimir, 17, 15.6, 2400, 2\nPerisic, 6, 5.0, 1900, 5\nModric, 4, 3.2, 2200, 7\nPasalic, 7, 5.8, 2300, 4`,'belgium':`Lukaku, 18, 16.9, 2500, 4\nDe Bruyne, 8, 6.5, 2000, 11\nDoku, 7, 6.8, 2200, 8\nTrossard, 10, 8.6, 2100, 6\nOpenda, 16, 14.3, 2600, 5`,'uruguay':`Darwin Nunez, 16, 15.8, 2300, 5\nValverde, 9, 6.4, 3000, 7\nPellistri, 5, 4.4, 1700, 4\nMaxi Araujo, 7, 6.1, 2400, 6\nAguirre, 8, 7.5, 2000, 3`,'colombia':`Luis Diaz, 15, 12.7, 2700, 6\nCordoba, 12, 11.4, 2200, 3\nJames Rodriguez, 7, 5.6, 1900, 8\nDuran, 13, 12.9, 1500, 2\nArias, 6, 5.2, 2500, 5`,'switzerland':`Embolo, 11, 10.2, 2100, 3\nVargas, 8, 6.9, 2300, 6\nNdoye, 7, 6.6, 2200, 5\nAmdouni, 9, 8.8, 1900, 3\nXhaka, 4, 2.9, 2900, 7`,'morocco':`En-Nesyri, 17, 14.8, 2500, 2\nZiyech, 6, 5.3, 1600, 6\nBrahim Diaz, 11, 9.2, 2200, 7\nHakimi, 6, 4.5, 2800, 8\nRahimi, 13, 11.9, 2300, 5`,'senegal':`Sadio Mane, 12, 10.6, 2400, 6\nNicolas Jackson, 14, 13.1, 2300, 4\nBoulaye Dia, 11, 10.3, 2100, 3\nIsmaila Sarr, 9, 8.0, 2300, 6\nHabib Diallo, 8, 8.2, 1600, 2`,'usa':`Pulisic, 13, 10.9, 2500, 8\nBalogun, 11, 10.8, 2000, 2\nWeah, 7, 6.1, 2100, 5\nReyna, 5, 4.6, 1300, 6\nPepi, 12, 11.5, 1600, 2`,'mexico':`Santi Gimenez, 19, 16.4, 2600, 4\nHirving Lozano, 8, 7.2, 2000, 6\nAlexis Vega, 9, 7.8, 2200, 5\nQuinones, 7, 6.5, 2100, 4\nAntuna, 5, 4.4, 1900, 6`,'canada':`Jonathan David, 24, 20.1, 2800, 7\nAlphonso Davies, 6, 5.2, 2400, 8\nLarin, 10, 9.6, 1900, 3\nShaffelburg, 7, 6.3, 2000, 6\nBuchanan, 5, 4.7, 1700, 5`,'japan':`Ueda, 14, 12.6, 2100, 2\nMitoma, 9, 8.1, 2200, 7\nKubo, 8, 7.4, 2500, 8\nMinamino, 10, 8.7, 2300, 6\nDoan, 7, 6.6, 2400, 7`,'south korea':`Son Heung-min, 15, 12.4, 2600, 8\nHwang Hee-chan, 10, 9.5, 2100, 4\nCho Gue-sung, 8, 8.1, 1600, 2\nLee Kang-in, 7, 6.2, 2300, 7\nOh Hyeon-gyu, 6, 6.4, 1400, 2`,'australia':`Duke, 7, 6.8, 1700, 2\nBoyle, 6, 5.5, 2000, 5\nIrvine, 8, 6.1, 2500, 4\nGoodwin, 5, 4.7, 1900, 6\nYengi, 6, 6.2, 1300, 1`,'norway':`Haaland, 34, 29.7, 2900, 5\nOdegaard, 9, 7.3, 2600, 11\nSorloth, 18, 16.2, 2500, 4\nBobb, 5, 4.5, 1600, 5\nNusa, 6, 5.8, 1800, 6`,'denmark':`Hojlund, 13, 12.5, 2300, 3\nEriksen, 6, 4.8, 2100, 8\nWind, 11, 10.4, 2200, 4\nDamsgaard, 5, 4.3, 2000, 5\nDolberg, 9, 8.9, 1700, 2`,'ecuador':`Enner Valencia, 11, 10.5, 2000, 3\nKevin Rodriguez, 7, 6.9, 1700, 2\nPacho, 2, 1.2, 2800, 1\nPlata, 8, 6.9, 2200, 6\nSarmiento, 5, 4.6, 1800, 5`,'paraguay':`Almiron, 8, 6.7, 2300, 6\nSanabria, 9, 8.8, 1900, 3\nEnciso, 6, 5.4, 1800, 5\nBareiro, 10, 9.6, 2000, 2\nSosa, 4, 3.7, 2100, 4`,'iran':`Taremi, 14, 12.8, 2200, 6\nAzmoun, 9, 8.6, 1700, 3\nGhoddos, 5, 4.2, 1900, 5\nJahanbakhsh, 6, 5.1, 1600, 4\nAnsarifard, 7, 7.0, 1300, 1`};
 function renderProps(){
   const sec=document.getElementById('props'); if(!sec) return;
   const LS='wcPropsRosters'; let store={}; try{store=JSON.parse(localStorage.getItem(LS)||'{}');}catch(e){}
@@ -3086,7 +3110,7 @@ function renderProps(){
     <input id="pp_t${k}" class="btn" style="width:100%;text-align:left" placeholder="Team ${k==='H'?'(home)':'(away)'} name" value="">
     <div class="note" style="margin:4px 0 2px">expected goals for this side (from any Matchup Lab card)</div>
     <input id="pp_l${k}" type="number" step="0.05" min="0.05" class="btn" style="width:110px" value="${k==='H'?'1.45':'1.10'}">
-    <div class="note" style="margin:8px 0 2px">squad preloads as you type the team (25-26 club priors — edit freely). Or paste your own: <b>Name, Goals, xG(optional), Minutes(optional)</b></div>
+    <div class="note" style="margin:8px 0 2px">squad preloads as you type the team (25-26 club priors — edit freely). Or paste your own: <b>Name, Goals, xG, Minutes, Assists (extras optional)</b></div>
     <textarea id="pp_r${k}" rows="9" style="width:100%;background:#0d1117;color:inherit;border:1px solid #2a3442;border-radius:8px;padding:8px;font:inherit"></textarea>
   </div>`;
   sec.innerHTML=`<div class="panel"><h2>Anytime Goalscorer — model board</h2>
