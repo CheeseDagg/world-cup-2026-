@@ -3069,7 +3069,8 @@ async function syncLive(){
     const eloChanged=recomputeElo(games);
     if(eloChanged){ for(const k in _advCache)delete _advCache[k]; _bracketRows=null; }
     let luckChanged=false;
-    try{ await fetchKOStats(games); luckChanged=recomputeLuck(games); }catch(e){}
+    try{ await fetchKOStats(games); luckChanged=recomputeLuck(games); }
+    catch(e){ window._luckErr=e; console.error('[luck update failed]', e); }
     const applied=applyLiveResults(results);
     LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length; LIVE.live=stripLive.length;
     const el=document.getElementById('liveStrip');
