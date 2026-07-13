@@ -2447,13 +2447,20 @@ function recomputeLuck(games){
   const prev={};
   for(const c in T){ if(T[c].luck0==null)T[c].luck0=T[c].luck; prev[c]=T[c].luck; T[c].luck=T[c].luck0; }
   const done=(games||[]).filter(g=>g.state==='post'&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]&&g.winnerName&&g.hs!==''&&g.as!=='').slice().sort((a,b)=>a.ms-b.ms);
+  const LUCK_DBG = (window._luckDbg = window._luckDbg || []);
   done.forEach(g=>{
     const rec=KO_STATS[g.id]; if(!rec) return;                 // no shot data yet for this game -> leave it out, don't guess
     const hs=parseInt(g.hs,10), as=parseInt(g.as,10); if(isNaN(hs)||isNaN(as)) return;
     const xh=xgpFromStats(rec.h), xa=xgpFromStats(rec.a);
     if(xh==null||xa==null) return;
-    T[g.hc].luck = +(T[g.hc].luck + (hs-xh)).toFixed(1);
-    T[g.ac].luck = +(T[g.ac].luck + (as-xa)).toFixed(1);
+    // clamp: a single match's (goals - shot-proxy-xG) shouldn't plausibly swing past +/-3 --
+    // if a stat-field mismatch or bad API read ever produced a wild number, this stops it
+    // from dragging a team to an implausible extreme instead of just being slightly off.
+    const dh=Math.max(-3,Math.min(3, hs-xh)), da=Math.max(-3,Math.min(3, as-xa));
+    T[g.hc].luck = +(T[g.hc].luck + dh).toFixed(1);
+    T[g.ac].luck = +(T[g.ac].luck + da).toFixed(1);
+    LUCK_DBG.push({game:g.hc+' '+hs+'-'+as+' '+g.ac, h_sot:rec.h&&rec.h.sot, h_shots:rec.h&&rec.h.shots,
+      a_sot:rec.a&&rec.a.sot, a_shots:rec.a&&rec.a.shots, xh:+xh.toFixed(2), xa:+xa.toFixed(2), dh, da});
   });
   let changed=false; for(const c in T){ if(Math.abs(T[c].luck-prev[c])>1e-9){changed=true;break;} }
   return changed;
