@@ -415,8 +415,13 @@
       has actually advanced. It cascades — once a round's results are in, the next round's matchups are known
       and get filled as those finish too. The badge under the header shows the sync state. If the feed is ever
       unreachable, the page silently falls back to the results baked into the file, so it can never show a
-      broken bracket — worst case it's as current as the last save. The <i>ratings and the model itself</i>
-      don't auto-update (those are built from group-stage data), only the knockout results do. The
+      broken bracket — worst case it's as current as the last save. <b>Power (Elo)</b> updates itself the same
+      way for every completed knockout game. <b>Luck (G&minus;xGp)</b> — the Finishing axis on the radar and
+      the Ratings column — also replays forward from its group-stage baseline using each knockout game's real
+      shot stats (SoT and total shots) pulled from the same feed, so a team that grinds out knockout wins on
+      fewer clean looks shows it, and one that's been the run of play but not the scoreline shows that too.
+      The deeper <b>opponent-adjusted Play # (xG power)</b> table on the Ratings tab is still a group-stage-only
+      snapshot — that one needs shot-location data this feed doesn't carry, so it's not live. The
       <b>Scoreboard</b> tab reads the same feed to show each day's games — live scores with the minute,
       finals with who advanced, and upcoming kickoffs with our model's pick to advance.
 
@@ -2411,6 +2416,48 @@ function recomputeElo(games){
   let changed=false; for(const c in T){ if(T[c].elo!==prev[c]){changed=true;break;} }
   return changed;
 }
+// ---- Luck (G-xGp) replay: same self-updating pattern as Elo above, extended with real
+// per-game shot data. Group-stage luck values are the frozen starting baseline (luck0);
+// every completed knockout game then adds its own (goals - shot-proxy-xG) on top, using
+// the SAME xGp formula already defined for the tool (0.30*SoT + 0.035*other shots) so the
+// live number stays on one consistent scale. Replayed from baseline every poll -- exactly
+// like Elo -- so it can never double-count a game or drift out of sync with the bracket.
+const KO_STATS = (function(){ try{ return JSON.parse(localStorage.getItem('wcKoStatsV1')||'{}'); }catch(e){ return {}; } })();
+function saveKOStats(){ try{ localStorage.setItem('wcKoStatsV1', JSON.stringify(KO_STATS)); }catch(e){} }
+function xgpFromStats(s){
+  if(!s) return null;
+  const shots=parseFloat(s.shots), sot=parseFloat(s.sot);
+  if(isNaN(shots)||isNaN(sot)) return null;
+  return 0.30*sot + 0.035*Math.max(0, shots-sot);
+}
+async function fetchKOStats(games){
+  const done=(games||[]).filter(g=>g.state==='post'&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]&&g.winnerName&&g.hs!==''&&g.as!=='' && !KO_STATS[g.id]);
+  if(!done.length) return false;
+  let got=false;
+  await Promise.all(done.map(async g=>{
+    try{ const r=await fetch(SUMMARY_URL(g.id),{cache:'no-store'}); if(!r.ok)return;
+      const p=parseSummary(await r.json());
+      if(p && p.stats && (p.stats.h||p.stats.a)){ KO_STATS[g.id]={h:p.stats.h,a:p.stats.a}; got=true; }
+    }catch(e){}
+  }));
+  if(got) saveKOStats();
+  return got;
+}
+function recomputeLuck(games){
+  const prev={};
+  for(const c in T){ if(T[c].luck0==null)T[c].luck0=T[c].luck; prev[c]=T[c].luck; T[c].luck=T[c].luck0; }
+  const done=(games||[]).filter(g=>g.state==='post'&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]&&g.winnerName&&g.hs!==''&&g.as!=='').slice().sort((a,b)=>a.ms-b.ms);
+  done.forEach(g=>{
+    const rec=KO_STATS[g.id]; if(!rec) return;                 // no shot data yet for this game -> leave it out, don't guess
+    const hs=parseInt(g.hs,10), as=parseInt(g.as,10); if(isNaN(hs)||isNaN(as)) return;
+    const xh=xgpFromStats(rec.h), xa=xgpFromStats(rec.a);
+    if(xh==null||xa==null) return;
+    T[g.hc].luck = +(T[g.hc].luck + (hs-xh)).toFixed(1);
+    T[g.ac].luck = +(T[g.ac].luck + (as-xa)).toFixed(1);
+  });
+  let changed=false; for(const c in T){ if(Math.abs(T[c].luck-prev[c])>1e-9){changed=true;break;} }
+  return changed;
+}
 // In-play probability for a game in progress: remaining expected goals scale with time left,
 // added onto the current score; draw → extra time/shootout treated as a coin flip.
 function clkMin(clk){
@@ -3014,6 +3061,8 @@ async function syncLive(){
     games.sort((a,b)=>a.ms-b.ms); LIVE.games=games;
     const eloChanged=recomputeElo(games);
     if(eloChanged){ for(const k in _advCache)delete _advCache[k]; _bracketRows=null; }
+    let luckChanged=false;
+    try{ await fetchKOStats(games); luckChanged=recomputeLuck(games); }catch(e){}
     const applied=applyLiveResults(results);
     LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length; LIVE.live=stripLive.length;
     const el=document.getElementById('liveStrip');
@@ -3022,7 +3071,7 @@ async function syncLive(){
     const at=curTab;
     if(at==='scoreboard') renderScoreboard();
     else if(at==='tracker') renderTracker();
-    else if(applied>0||eloChanged) rerenderActive();
+    else if(applied>0||eloChanged||luckChanged) rerenderActive();
     enrichLiveGames();
   }catch(e){ LIVE.state='fail'; refreshSB(); }
   updateLiveBadge();
