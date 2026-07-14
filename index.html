@@ -1382,9 +1382,13 @@ function agsPlayers(mi){ const m=PARLAY_TIES[mi]||{}; const out=[];
 function agsLegP(l){ const m=PARLAY_TIES[l.mi]; if(!m)return null;
   const md=modelMatch(m.h,m.a); const pl=agsPlayers(l.mi).find(p=>('g'+p.side+'_'+p.name)===l.side.slice(0,-1));
   if(!pl)return null; const tl=(pl.side==='h'?md.la:md.lb);
-  if(l.side.endsWith('A')){ const la=tl*ASSISTED_RATE*pl.ash; return 1-Math.exp(-la); }
-  const lam=tl*pl.sh;
-  return l.side.endsWith('1') ? 1-Math.exp(-lam) : 1-Math.exp(-lam)*(1+lam); }
+  const suf=l.side.slice(-1);
+  const lamG=tl*pl.sh, lamA=tl*ASSISTED_RATE*pl.ash, lamC=lamG+lamA;   // goal-rate, assist-rate, combined involvement rate (independence, same assumption as the separate anytime/assist legs)
+  if(suf==='A') return 1-Math.exp(-lamA);                 // 1+ assist
+  if(suf==='S') return 1-Math.exp(-lamC);                 // score OR assist (>=1 involvement)
+  if(suf==='T') return 1-Math.exp(-lamC)*(1+lamC);        // 2+ score or assist (>=2 involvements)
+  if(suf==='2') return 1-Math.exp(-lamG)*(1+lamG);        // 2+ goals
+  return 1-Math.exp(-lamG); }                             // '1' anytime goal
 function sidesFor(market){
   switch(market){
     case 'dc': return [['1x','home/draw'],['12','home/away'],['x2','draw/away']];
@@ -1410,7 +1414,7 @@ function sideLabel(l){
     case 'btts': return s==='by'?'BTTS Yes':'BTTS No';
     case 'cs': return s==='csh'?H+' clean sheet':A+' clean sheet';
     case 'wm': return s==='h1'?H+' by 1':s==='h2'?H+' by 2+':s==='a1'?A+' by 1':A+' by 2+';
-    case 'ags': { const mm=s.match(/^g[ha]_(.+)([12A])$/); return mm? mm[1]+(mm[2]==='1'?' anytime':mm[2]==='2'?' 2+ goals':' 1+ assist'):'scorer'; }
+    case 'ags': { const mm=s.match(/^g[ha]_(.+)([12AST])$/); if(!mm)return 'scorer'; const _sf=mm[2]; const _lb=_sf==='1'?' anytime':_sf==='2'?' 2+ goals':_sf==='A'?' 1+ assist':_sf==='S'?' score or assist':' 2+ score or assist'; return mm[1]+_lb; }
     case 'xs': return s[0]==='s' ? (H+' '+s[1]+'\u2013'+s[2]+' '+A+' (exact)') : (s[1]==='h'?H:A)+' '+(s[2]==='1'?'1-0/2-0/3-0':'2-1/3-1/4-1');
     case 'adv': return (s==='advh'?H:A)+' to advance';
     default: return l.label||'manual';
@@ -1466,7 +1470,7 @@ function legRow(l,idx){
   const matchOpts=PARLAY_TIES.map((mm,i)=>`<option value="${i}" ${i===l.mi?'selected':''}>${mm.h}–${mm.a}</option>`).join('');
   const mktOpts=['1x2','dc','ou15','ou','ou35','btts','cs','wm','xs','ags','adv'].map(k=>`<option value="${k}" ${k===l.market?'selected':''}>${MK[k]}</option>`).join('');
   const sideOpts=(l.market==='ags'
-    ? agsPlayers(l.mi).flatMap(p=>[['g'+p.side+'_'+p.name+'1',p.name+' anytime'],['g'+p.side+'_'+p.name+'2',p.name+' 2+ goals'],['g'+p.side+'_'+p.name+'A',p.name+' 1+ assist']])
+    ? agsPlayers(l.mi).flatMap(p=>[['g'+p.side+'_'+p.name+'1',p.name+' anytime'],['g'+p.side+'_'+p.name+'S',p.name+' score or assist'],['g'+p.side+'_'+p.name+'T',p.name+' 2+ score or assist'],['g'+p.side+'_'+p.name+'2',p.name+' 2+ goals'],['g'+p.side+'_'+p.name+'A',p.name+' 1+ assist']])
     : sidesFor(l.market)).map(([k,lb])=>`<option value="${k}" ${k===l.side?'selected':''}>${lb||sideLabel({...l,side:k})}</option>`).join('');
   const mp=legMarginal(l);
   return `<div class="leg" data-leg="${idx}">
@@ -1482,7 +1486,7 @@ function readLeg(row,idx){
   if(l.market==='manual'){ l.label=row.querySelector('.man-label').value; l.prob=row.querySelector('.man-prob').value; l.price=row.querySelector('.leg-price').value; return; }
   l.mi=+row.querySelector('.leg-match').value;
   l.market=row.querySelector('.leg-mkt').value;
-  const valid=(l.market==='ags'?agsPlayers(l.mi).flatMap(p=>['g'+p.side+'_'+p.name+'1','g'+p.side+'_'+p.name+'2','g'+p.side+'_'+p.name+'A']):sidesFor(l.market).map(s=>s[0])); let side=row.querySelector('.leg-side').value;
+  const valid=(l.market==='ags'?agsPlayers(l.mi).flatMap(p=>['g'+p.side+'_'+p.name+'1','g'+p.side+'_'+p.name+'S','g'+p.side+'_'+p.name+'T','g'+p.side+'_'+p.name+'2','g'+p.side+'_'+p.name+'A']):sidesFor(l.market).map(s=>s[0])); let side=row.querySelector('.leg-side').value;
   l.side=valid.includes(side)?side:valid[0];
   l.price=row.querySelector('.leg-price').value;
 }
@@ -2532,8 +2536,16 @@ function legProb(hc,ac,hs,as,minute,redH,redA,leg,settle){
 }
 const LEG_LABELS={cs:'correct score',hband:'win 1-0/2-0/3-0',aband:'win 1-0/2-0/3-0',hcon1:'win 2-1/3-1/4-1',acon1:'win 2-1/3-1/4-1',draw:'draw',hwin:'to win',awin:'to win',btts:'both score',nbtts:'clean sheet',over:'over',under:'under'};
 // user's tracked parlay legs, persisted
-let SLIP=(function(){ try{ return JSON.parse(localStorage.getItem('wc_slip')||'[]'); }catch(_){ return []; } })();
-function saveSlip(){ try{ localStorage.setItem('wc_slip',JSON.stringify(SLIP)); }catch(_){} }
+/* multi-parlay slip model: array of {id,name,legs:[...]}. Migrates the legacy single wc_slip into 'Parlay 1'. */
+let SLIPS=(function(){
+  try{ const v=JSON.parse(localStorage.getItem('wc_slips')||'null'); if(Array.isArray(v)&&v.length)return v; }catch(_){}
+  try{ const old=JSON.parse(localStorage.getItem('wc_slip')||'[]'); if(Array.isArray(old)&&old.length)return [{id:'p'+Date.now(),name:'Parlay 1',legs:old}]; }catch(_){}
+  return [{id:'p'+Date.now(),name:'Parlay 1',legs:[]}];
+})();
+let slipTarget=(SLIPS[0]&&SLIPS[0].id)||null;
+function saveSlips(){ try{ localStorage.setItem('wc_slips',JSON.stringify(SLIPS)); }catch(_){} }
+function slipById(id){ return SLIPS.find(s=>s.id===id); }
+function newParlay(){ const id='p'+Date.now(); SLIPS.push({id:id,name:'Parlay '+(SLIPS.length+1),legs:[]}); slipTarget=id; saveSlips(); renderTracker(); }
 /* ---------- scoreboard (the day's games, from the live feed) ---------- */
 let sbDay=null;
 function localDateKey(ms){ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -2683,40 +2695,59 @@ function gameStateFor(hc,ac){
   return { state:g.state, min: g.state==='in'?clkMin(g.clk):(g.state==='post'?90:0),
     hs: flip?as:hs, as: flip?hs:as, rh: flip?ra:rh, ra: flip?rh:ra };
 }
-function slipPanel(){
-  let rows='', jointLive=1, jointPre=1, anyLive=false, allResolvable=true;
-  SLIP.forEach((leg,idx)=>{
+function slipLegRows(legs,pid){
+  let rows='', jointLive=1, jointPre=1, anyLive=false;
+  legs.forEach((leg,idx)=>{
     const th=T[leg.hc], ta=T[leg.ac]; if(!th||!ta){ return; }
     const st=gameStateFor(leg.hc,leg.ac);
-    // pre-match probability (minute 0, 0-0)
     const pre=legProb(leg.hc,leg.ac,0,0,0,0,0,leg,leg.settle);
     let live=pre, tag='pre-match', cls='mut';
     if(st){
       if(st.state==='in'){ live=legProb(leg.hc,leg.ac,st.hs,st.as,st.min,st.rh,st.ra,leg,leg.settle); anyLive=true;
-        tag=`live ${st.hs}-${st.as} · ${st.min}'`; cls='pos'; }
-      else if(st.state==='post'){ live=legProb(leg.hc,leg.ac,st.hs,st.as,90,st.rh,st.ra,leg,leg.settle); const hit=live>0.5; tag=`FT ${st.hs}-${st.as} · ${hit?'✓ hit':'✗ miss'}`; cls=hit?'pos':'neg'; live=hit?1:0; }
+        tag=`live ${st.hs}-${st.as} \u00b7 ${st.min}'`; cls='pos'; }
+      else if(st.state==='post'){ live=legProb(leg.hc,leg.ac,st.hs,st.as,90,st.rh,st.ra,leg,leg.settle); const hit=live>0.5; tag=`FT ${st.hs}-${st.as} \u00b7 ${hit?'\u2713 hit':'\u2717 miss'}`; cls=hit?'pos':'neg'; live=hit?1:0; }
     }
     jointLive*=live; jointPre*=pre;
-    const dp=(live-pre)*100, arrow= Math.abs(dp)<0.5?'':(dp>0?`<span style="color:var(--pos)">▲${dp.toFixed(0)}</span>`:`<span style="color:var(--neg)">▼${Math.abs(dp).toFixed(0)}</span>`);
+    const dp=(live-pre)*100, arrow= Math.abs(dp)<0.5?'':(dp>0?`<span style="color:var(--pos)">\u25b2${dp.toFixed(0)}</span>`:`<span style="color:var(--neg)">\u25bc${Math.abs(dp).toFixed(0)}</span>`);
     const nm = (leg.k==='draw')? th.name+' vs '+ta.name
       : (leg.k==='hwin'||leg.k==='hband'||leg.k==='hcon1')? th.name
       : (leg.k==='awin'||leg.k==='aband'||leg.k==='acon1')? ta.name
       : (leg.k==='cs')? th.name+' '+leg.h+'-'+leg.a+' '+ta.name : th.name+' vs '+ta.name;
     const desc = leg.k==='cs'?'correct score': (leg.k==='over'||leg.k==='under')? LEG_LABELS[leg.k]+' '+leg.line : LEG_LABELS[leg.k];
     rows+=`<div class="strow" style="align-items:center;gap:8px">
-      <span style="flex:1"><b>${nm}</b> <span class="note" style="width:auto">${desc}${leg.settle==='et'?' · ET':''}</span><br>
+      <span style="flex:1"><b>${nm}</b> <span class="note" style="width:auto">${desc}${leg.settle==='et'?' \u00b7 ET':''}</span><br>
       <span class="note" style="width:auto;color:var(--${cls})">${tag}</span></span>
       <span style="text-align:right;min-width:96px"><b style="font-size:15px">${(live*100).toFixed(live>0&&live<1?1:0)}%</b> ${arrow}<br>
       <span class="note" style="width:auto">was ${(pre*100).toFixed(0)}%</span></span>
-      <button class="mini slip-x" data-i="${idx}" style="width:auto;padding:2px 7px">✕</button></div>`;
+      <button class="mini slip-x" data-p="${pid}" data-i="${idx}" style="width:auto;padding:2px 7px">\u2715</button></div>`;
   });
+  return {rows,jointLive,jointPre,anyLive};
+}
+function slipPanel(){
   const teamOpts=sel=>Object.keys(T).sort((a,b)=>T[a].name.localeCompare(T[b].name)).map(k=>`<option value="${k}" ${sel===k?'selected':''}>${T[k].name}</option>`).join('');
-  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score…']];
-  const head = SLIP.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>Parlay — all legs</b><br><span class="note" style="width:auto">${anyLive?'updating live':'pre-match'}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(jointLive*100).toFixed(jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${jointLive>0?Math.round(1/jointLive).toLocaleString():'∞'} · was 1-in-${jointPre>0?Math.round(1/jointPre).toLocaleString():'∞'}</span></span></div>`:'';
-  return `<div class="panel"><h2>My slip — live leg tracker</h2>
-    <p class="note">Add the legs you actually bet; each one shows its <b>live probability of still landing</b> given the current score and clock (same in-play engine as the odds below — non-linear scoring intensity, red-card adjustment). ▲▼ is the move since kickoff. The joint line is your whole ticket's live chance. Legs persist on this device.</p>
-    ${rows||'<div class="note" style="padding:6px 0">No legs yet — add one below.</div>'}${head}
+  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score\u2026']];
+  if(!slipTarget||!slipById(slipTarget)) slipTarget=(SLIPS[0]&&SLIPS[0].id)||null;
+  let cards='';
+  SLIPS.forEach(sl=>{
+    const r=slipLegRows(sl.legs,sl.id);
+    const joint = sl.legs.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>${sl.name} \u2014 all legs</b><br><span class="note" style="width:auto">${r.anyLive?'updating live':'pre-match'}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(r.jointLive*100).toFixed(r.jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${r.jointLive>0?Math.round(1/r.jointLive).toLocaleString():'\u221e'} \u00b7 was 1-in-${r.jointPre>0?Math.round(1/r.jointPre).toLocaleString():'\u221e'}</span></span></div>`:'';
+    cards+=`<div class="slipcard" data-pid="${sl.id}" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--card2)">
+      <div class="strow" style="align-items:center;gap:8px;margin-bottom:2px">
+        <input class="sl-name" data-p="${sl.id}" value="${(sl.name||'').replace(/"/g,'&quot;')}" style="flex:1;font-weight:700;font-size:14px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--ink);padding:2px 0">
+        <button class="mini sl-del" data-p="${sl.id}" style="width:auto;padding:2px 8px" title="remove this parlay">remove</button>
+      </div>
+      ${r.rows||'<div class="note" style="padding:6px 0">No legs yet \u2014 add one below.</div>'}${joint}
+    </div>`;
+  });
+  const parlayOpts=SLIPS.map(s=>`<option value="${s.id}" ${s.id===slipTarget?'selected':''}>${(s.name||'').replace(/"/g,'&quot;')}</option>`).join('');
+  return `<div class="panel"><h2>My slips \u2014 live leg tracker</h2>
+    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device.</p>
+    ${cards}
+    <div class="leg" style="border:none;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
+      <button class="mini" id="slNew" style="width:auto">+ new parlay</button>
+    </div>
     <div class="leg" style="border:none;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center">
+      <span class="note" style="width:auto">add leg to</span><select id="slTarget">${parlayOpts}</select>
       <select id="slHc">${teamOpts('BRA')}</select><span class="note" style="width:auto">v</span><select id="slAc">${teamOpts('NOR')}</select>
       <select id="slKind">${legKinds.map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')}</select>
       <span id="slCsWrap" style="display:none"><input id="slCsH" class="lp" inputmode="numeric" placeholder="H" style="width:40px">-<input id="slCsA" class="lp" inputmode="numeric" placeholder="A" style="width:40px"></span>
@@ -2725,19 +2756,25 @@ function slipPanel(){
     </div></div>`;
 }
 function wireSlip(){
+  const nb=document.getElementById('slNew'); if(nb)nb.addEventListener('click',newParlay);
+  document.querySelectorAll('.sl-name').forEach(inp=>inp.addEventListener('change',()=>{ const s=slipById(inp.dataset.p); if(s){ s.name=inp.value.trim()||s.name; saveSlips(); } }));
+  document.querySelectorAll('.sl-del').forEach(b=>b.addEventListener('click',()=>{ const id=b.dataset.p; const i=SLIPS.findIndex(s=>s.id===id); if(i>=0)SLIPS.splice(i,1); if(!SLIPS.length)SLIPS.push({id:'p'+Date.now(),name:'Parlay 1',legs:[]}); if(id===slipTarget)slipTarget=(SLIPS[0]&&SLIPS[0].id)||null; saveSlips(); renderTracker(); }));
+  document.querySelectorAll('.slip-x').forEach(b=>b.addEventListener('click',()=>{ const s=slipById(b.dataset.p); if(s){ s.legs.splice(+b.dataset.i,1); saveSlips(); renderTracker(); } }));
+  const tsel=document.getElementById('slTarget'); if(tsel)tsel.addEventListener('change',e=>{ slipTarget=e.target.value; });
   const add=document.getElementById('slAdd'); if(!add)return;
   const kind=document.getElementById('slKind'), csw=document.getElementById('slCsWrap');
   if(kind)kind.addEventListener('change',()=>{ csw.style.display=kind.value==='cs'?'inline':'none'; });
   add.addEventListener('click',()=>{
+    const tgt=document.getElementById('slTarget').value; slipTarget=tgt; const s=slipById(tgt); if(!s)return;
     const hc=document.getElementById('slHc').value, ac=document.getElementById('slAc').value, k=kind.value, settle=document.getElementById('slSettle').value;
     if(hc===ac)return;
     const leg={hc,ac,k,settle};
     if(k==='cs'){ leg.h=parseInt(document.getElementById('slCsH').value,10)||0; leg.a=parseInt(document.getElementById('slCsA').value,10)||0; }
     if(k==='over'||k==='under')leg.line=2.5;
-    SLIP.push(leg); saveSlip(); renderTracker();
+    s.legs.push(leg); saveSlips(); renderTracker();
   });
-  document.querySelectorAll('.slip-x').forEach(b=>b.addEventListener('click',()=>{ SLIP.splice(+b.dataset.i,1); saveSlip(); renderTracker(); }));
 }
+
 /* ---------- bet builder: per-leg model probabilities + combined ---------- */
 function marketRows(hc,ac,mktTotal){
   const mm=modelMatch(hc,ac); let la=mm.la, lb=mm.lb; const anchored=(mktTotal>0);
