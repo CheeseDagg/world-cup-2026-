@@ -3199,8 +3199,8 @@ async function syncLive(){
       else if(st.state==='in'){ LIVE.anyLive=true; stripLive.push({home:hName,away:aName,hs:H.score,as:A.score,clk:clk||'LIVE'}); }
       games.push(g);
     });
-    const prevEnrich={}; (LIVE.games||[]).forEach(g=>{ if(g.id&&(g.reds||g.stats||g._redsRaw))prevEnrich[g.id]={reds:g.reds,stats:g.stats,redMin:g.redMin,_redsRaw:g._redsRaw,redsPending:g.redsPending}; });
-    games.forEach(g=>{ if(g.id&&prevEnrich[g.id]){ const e=prevEnrich[g.id]; g.reds=e.reds; g.stats=e.stats; g.redMin=e.redMin; g._redsRaw=e._redsRaw; g.redsPending=e.redsPending; } });
+    const prevEnrich={}; (LIVE.games||[]).forEach(g=>{ if(g.id&&(g.reds||g.stats||g._redsRaw||g._gevKeys||g.gevDone))prevEnrich[g.id]={reds:g.reds,stats:g.stats,redMin:g.redMin,_redsRaw:g._redsRaw,redsPending:g.redsPending,gev:g.gev,_gevKeys:g._gevKeys,gevDone:g.gevDone}; });
+    games.forEach(g=>{ if(g.id&&prevEnrich[g.id]){ const e=prevEnrich[g.id]; g.reds=e.reds; g.stats=e.stats; g.redMin=e.redMin; g._redsRaw=e._redsRaw; g.redsPending=e.redsPending; g.gev=e.gev; g._gevKeys=e._gevKeys; g.gevDone=e.gevDone; } });
     games.sort((a,b)=>a.ms-b.ms); LIVE.games=games;
     const eloChanged=recomputeElo(games);
     if(eloChanged){ for(const k in _advCache)delete _advCache[k]; _bracketRows=null; }
