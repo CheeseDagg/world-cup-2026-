@@ -392,6 +392,7 @@
 
   <section id="scoreboard"></section>
   <section id="tracker" class="hide"></section>
+  <section id="hits" class="hide"></section>
   <section id="builder" class="hide"></section>
   <section id="slate" class="hide"></section>
   <section id="matches" class="hide"></section>
@@ -3387,16 +3388,36 @@ function renderProps(){
   });
 }
 
+
+/* ---------- Hits: all upcoming plays ranked by probability of hitting. Nothing else. ---------- */
+function renderHits(){
+  const sec=document.getElementById('hits'); if(!sec)return;
+  const up=(LIVE.games||[]).filter(g=>g.state==='pre'&&g.hc&&g.ac&&T[g.hc]&&T[g.ac]).sort((a,b)=>a.ms-b.ms).slice(0,8);
+  if(!up.length){ sec.innerHTML='<div class="sbnote">No upcoming games in the feed window.</div>'; return; }
+  const plays=[];
+  up.forEach(g=>{
+    const ko=new Date(g.ms).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'});
+    marketRows(g.hc,g.ac,0).forEach(([grp,rows])=>{
+      rows.forEach(([lab,p])=>{ if(p>0&&p<1) plays.push({m:T[g.hc].name+' v '+T[g.ac].name,ko:ko,grp:grp,lab:lab,p:p}); });
+    });
+  });
+  plays.sort((a,b)=>b.p-a.p);
+  const top=plays.slice(0,40);
+  let rows=top.map((r,i)=>'<tr><td style="color:var(--mut2)">'+(i+1)+'</td><td><b>'+r.lab+'</b><br><span class="note" style="width:auto">'+r.grp+'</span></td><td>'+r.m+'<br><span class="note" style="width:auto">'+r.ko+'</span></td><td style="text-align:right"><b style="font-size:15px;color:var(--gold)">'+(r.p*100).toFixed(1)+'%</b><br><span class="note" style="width:auto">1-in-'+(1/r.p).toFixed(1)+'</span></td></tr>').join('');
+  sec.innerHTML='<div class="panel"><h2>Hits — most likely to land</h2>'
+    +'<p class="note">Every market on every upcoming game, ranked by the model\u2019s probability of hitting. Highest first. That\u2019s it.</p>'
+    +'<table class="ctable"><thead><tr><th>#</th><th>Play</th><th>Match</th><th style="text-align:right">Hit chance</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
 const GROUPS=[
-  ['Live',['scoreboard','tracker']],
+  ['Live',['scoreboard','tracker','hits']],
   ['Games',['matches','lab']],
   ['Tournament',['bracket','tree','ratings']],
   ['Betting',['parlay','builder','props','staking']],
   ['More',['calibrate','method']],
 ];
-const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',slate:'Slate',staking:'Staking',props:'Props',calibrate:'Calibrate',method:'Method'};
-const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,slate:renderSlate,staking:renderStaking,props:renderProps,calibrate:renderCalibrate};
-const ALLTABS=['scoreboard','tracker','matches','lab','bracket','tree','ratings','parlay','builder','slate','staking','props','calibrate','method'];
+const TLABEL={scoreboard:'Scoreboard',tracker:'Tracker',hits:'Hits',matches:'Matches',lab:'Matchup Lab',bracket:'Title Odds',tree:'Bracket',ratings:'Ratings',parlay:'Parlay',builder:'Builder',slate:'Slate',staking:'Staking',props:'Props',calibrate:'Calibrate',method:'Method'};
+const RENDERFN={scoreboard:renderScoreboard,tracker:renderTracker,hits:renderHits,matches:renderMatches,lab:renderLab,bracket:renderBracket,tree:renderTree,ratings:renderRatings,parlay:renderParlay,builder:renderBuilder,slate:renderSlate,staking:renderStaking,props:renderProps,calibrate:renderCalibrate};
+const ALLTABS=['scoreboard','tracker','hits','matches','lab','bracket','tree','ratings','parlay','builder','slate','staking','props','calibrate','method'];
 function showTab(tab){
   ALLTABS.forEach(id=>{const el=document.getElementById(id); if(el)el.classList.toggle('hide',id!==tab);});
   curTab=tab; const gi=GROUPS.findIndex(g=>g[1].includes(tab)); if(gi>=0){curGroup=gi;lastTab[gi]=tab;}
