@@ -2695,11 +2695,86 @@ function gameStateFor(hc,ac){
   return { state:g.state, min: g.state==='in'?clkMin(g.clk):(g.state==='post'?90:0),
     hs: flip?as:hs, as: flip?hs:as, rh: flip?ra:rh, ra: flip?rh:ra };
 }
+/* ---------- player-prop legs in the tracker: rates, matching, live probability ---------- */
+const PL_KINDS={pag:'anytime goal',psa:'score or assist',p2sa:'2+ score or assist'};
+function normPl(s){ try{ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim(); }catch(_){ return (s||'').toString().toLowerCase().trim(); } }
+function plMatch(squadName,feedName){ const a=normPl(squadName), b=normPl(feedName); if(!a||!b)return false;
+  if(b.indexOf(a)>=0||a.indexOf(b)>=0)return true;
+  const at=a.split(' ').pop(), bt=b.split(' ').pop(); return at.length>2&&at===bt; }
+function squadTextForAb(ab){ const nm=((T[ab]&&T[ab].name)||'').toLowerCase();
+  try{ const store=JSON.parse(localStorage.getItem('wcPropsRosters')||'{}'); if(store[nm]&&store[nm].trim())return store[nm]; }catch(_){}
+  return (typeof PROP_SQUADS!=='undefined'&&PROP_SQUADS[nm])||null; }
+function playerRatesFor(ab){ const sq=squadTextForAb(ab); if(!sq)return [];
+  const rows=sq.split('\n').map(l=>l.split(',').map(s=>s.trim())).filter(r=>r.length>=2&&parseFloat(r[1])>=0)
+    .map(r=>({n:r[0],g:+r[1],x:+(r[2]||r[1]),m:+(r[3]||900),a:+(r[4]||0)}));
+  if(!rows.length)return [];
+  const tot=rows.reduce((s,r)=>s+0.6*r.g+0.4*r.x,0)||1, mx=Math.max(...rows.map(r=>r.m),1);
+  const atot=rows.reduce((s,r)=>s+r.a,0)||1;
+  return rows.sort((a,b)=>(0.6*b.g+0.4*b.x)-(0.6*a.g+0.4*a.x))
+    .map(r=>{ const av=Math.min(r.m/mx,1); return {name:r.n, sh:(0.6*r.g+0.4*r.x)/tot*av, ash:(r.a/atot)*av}; });
+}
+function liveGameFor(hc,ac){ const g=(LIVE.games||[]).find(x=>(x.hc===hc&&x.ac===ac)||(x.hc===ac&&x.ac===hc)); return g?{g:g,flip:(g.hc===ac)}:null; }
+// count this player's confirmed involvements on the feed, filtered to the settlement window
+function playerMade(g,leg,feedSide){ let n=0; ((g&&g.gev)||[]).forEach(ev=>{ if(ev.side!==feedSide)return;
+    if(leg.settle!=='et'&&ev.per>=3)return;                        // 90-min legs ignore ET involvements
+    if(plMatch(leg.pl,ev.scorer))n++;                              // goal
+    else if(leg.k!=='pag'&&plMatch(leg.pl,ev.assist))n++;          // assist counts for S/A legs only
+  }); return n; }
+// P(leg still lands | state). st null = pre-match. made = involvements already credited.
+function playerLegProb(leg,st,made){
+  const mm=modelMatch(leg.hc,leg.ac);
+  const rates=playerRatesFor(leg.side==='h'?leg.hc:leg.ac);
+  const r=rates.find(x=>plMatch(x.name,leg.pl)); if(!r)return null;
+  const shareRate=(leg.k==='pag')? r.sh : (r.sh+ASSISTED_RATE*r.ash);
+  const need0=(leg.k==='p2sa')?2:1;
+  const need=Math.max(0,need0-(made||0));
+  if(need===0)return 1;
+  const hs=st?st.hs:0, as=st?st.as:0, min=st?st.min:0, rh=st?st.rh:0, ra=st?st.ra:0;
+  const frac=goalsRemainingFrac(min);
+  let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,rh,ra); lar=a[0]; lbr=a[1]; }
+  const teamRem=(leg.side==='h')?lar:lbr;
+  const lamR=teamRem*shareRate;
+  const pge=(lam,n)=> n<=0?1 : n===1? 1-Math.exp(-lam) : 1-Math.exp(-lam)*(1+lam);
+  if(leg.settle!=='et')return pge(lamR,need);
+  // ET only exists if level at 90: mixture weighted by P(draw at 90 | state), ET window = 30' at 0.8x pace
+  const F=liveGrid(leg.hc,leg.ac,hs,as,min,rh,ra).F;
+  let pD=0,tt=0; for(const i in F)for(const j in F[i]){ tt+=F[i][j]; if(+i===+j)pD+=F[i][j]; }
+  pD=tt>0?pD/tt:0;
+  const lamE=((leg.side==='h')?mm.la:mm.lb)/3*0.8*shareRate;
+  return (1-pD)*pge(lamR,need)+pD*pge(lamR+lamE,need);
+}
 function slipLegRows(legs,pid){
-  let rows='', jointLive=1, jointPre=1, anyLive=false;
+  let rows='', jointLive=1, jointPre=1, anyLive=false, unver=false;
   legs.forEach((leg,idx)=>{
     const th=T[leg.hc], ta=T[leg.ac]; if(!th||!ta){ return; }
     const st=gameStateFor(leg.hc,leg.ac);
+    if(PL_KINDS[leg.k]){
+      const pre=playerLegProb(leg,null,0);
+      if(pre==null){ rows+=`<div class="strow" style="align-items:center;gap:8px"><span style="flex:1"><b>${leg.pl}</b> <span class="note" style="width:auto">${PL_KINDS[leg.k]} \u00b7 no squad data</span></span><button class="mini slip-x" data-p="${pid}" data-i="${idx}" style="width:auto;padding:2px 7px">\u2715</button></div>`; return; }
+      let live=pre, tag='pre-match', cls='mut', skip=false;
+      const fg=liveGameFor(leg.hc,leg.ac);
+      if(st&&fg){
+        const feedSide=fg.flip?(leg.side==='h'?'a':'h'):leg.side;
+        const made=playerMade(fg.g,leg,feedSide);
+        if(st.state==='in'){ live=playerLegProb(leg,st,made); anyLive=true; tag=`live ${st.hs}-${st.as} \u00b7 ${st.min}'${made?` \u00b7 ${made} so far`:''}`; cls=made? 'pos':'mut'; if(live>pre)cls='pos'; }
+        else if(st.state==='post'){
+          const need0=(leg.k==='p2sa')?2:1; const teamFT=(leg.side==='h')?st.hs:st.as;
+          if(teamFT<need0){ live=0; tag=`FT ${st.hs}-${st.as} \u00b7 \u2717 miss`; cls='neg'; }   // team can't have fewer involvements available than goals scored
+          else if(fg.g.gevDone||((fg.g.gev||[]).length)){ const hit=made>=need0; live=hit?1:0; tag=`FT ${st.hs}-${st.as} \u00b7 ${hit?'\u2713 hit':'\u2717 miss'}`; cls=hit?'pos':'neg'; }
+          else { skip=true; tag=`FT ${st.hs}-${st.as} \u00b7 verifying scorers\u2026`; cls='mut'; }
+        }
+      }
+      if(skip){ jointPre*=pre; unver=true; } else { jointLive*=live; jointPre*=pre; }
+      const teamNm=(leg.side==='h'?th:ta).name;
+      const dp=(live-pre)*100, arrow=(skip||Math.abs(dp)<0.5)?'':(dp>0?`<span style="color:var(--pos)">\u25b2${dp.toFixed(0)}</span>`:`<span style="color:var(--neg)">\u25bc${Math.abs(dp).toFixed(0)}</span>`);
+      rows+=`<div class="strow" style="align-items:center;gap:8px">
+      <span style="flex:1"><b>${leg.pl}</b> <span class="note" style="width:auto">${teamNm} \u00b7 ${PL_KINDS[leg.k]}${leg.settle==='et'?' \u00b7 ET':''}</span><br>
+      <span class="note" style="width:auto;color:var(--${cls})">${tag}</span></span>
+      <span style="text-align:right;min-width:96px"><b style="font-size:15px">${skip?'\u2014':(live*100).toFixed(live>0&&live<1?1:0)+'%'}</b> ${arrow}<br>
+      <span class="note" style="width:auto">was ${(pre*100).toFixed(0)}%</span></span>
+      <button class="mini slip-x" data-p="${pid}" data-i="${idx}" style="width:auto;padding:2px 7px">\u2715</button></div>`;
+      return;
+    }
     const pre=legProb(leg.hc,leg.ac,0,0,0,0,0,leg,leg.settle);
     let live=pre, tag='pre-match', cls='mut';
     if(st){
@@ -2721,16 +2796,16 @@ function slipLegRows(legs,pid){
       <span class="note" style="width:auto">was ${(pre*100).toFixed(0)}%</span></span>
       <button class="mini slip-x" data-p="${pid}" data-i="${idx}" style="width:auto;padding:2px 7px">\u2715</button></div>`;
   });
-  return {rows,jointLive,jointPre,anyLive};
+  return {rows,jointLive,jointPre,anyLive,unver};
 }
 function slipPanel(){
   const teamOpts=sel=>Object.keys(T).sort((a,b)=>T[a].name.localeCompare(T[b].name)).map(k=>`<option value="${k}" ${sel===k?'selected':''}>${T[k].name}</option>`).join('');
-  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score\u2026']];
+  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score\u2026'],['pag','Player: anytime goal'],['psa','Player: score or assist'],['p2sa','Player: 2+ score or assist']];
   if(!slipTarget||!slipById(slipTarget)) slipTarget=(SLIPS[0]&&SLIPS[0].id)||null;
   let cards='';
   SLIPS.forEach(sl=>{
     const r=slipLegRows(sl.legs,sl.id);
-    const joint = sl.legs.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>${sl.name} \u2014 all legs</b><br><span class="note" style="width:auto">${r.anyLive?'updating live':'pre-match'}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(r.jointLive*100).toFixed(r.jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${r.jointLive>0?Math.round(1/r.jointLive).toLocaleString():'\u221e'} \u00b7 was 1-in-${r.jointPre>0?Math.round(1/r.jointPre).toLocaleString():'\u221e'}</span></span></div>`:'';
+    const joint = sl.legs.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>${sl.name} \u2014 all legs</b><br><span class="note" style="width:auto">${r.anyLive?'updating live':'pre-match'}${r.unver?' \u00b7 excludes 1+ leg verifying scorers':''}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(r.jointLive*100).toFixed(r.jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${r.jointLive>0?Math.round(1/r.jointLive).toLocaleString():'\u221e'} \u00b7 was 1-in-${r.jointPre>0?Math.round(1/r.jointPre).toLocaleString():'\u221e'}</span></span></div>`:'';
     cards+=`<div class="slipcard" data-pid="${sl.id}" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--card2)">
       <div class="strow" style="align-items:center;gap:8px;margin-bottom:2px">
         <input class="sl-name" data-p="${sl.id}" value="${(sl.name||'').replace(/"/g,'&quot;')}" style="flex:1;font-weight:700;font-size:14px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--ink);padding:2px 0">
@@ -2751,6 +2826,7 @@ function slipPanel(){
       <select id="slHc">${teamOpts('BRA')}</select><span class="note" style="width:auto">v</span><select id="slAc">${teamOpts('NOR')}</select>
       <select id="slKind">${legKinds.map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')}</select>
       <span id="slCsWrap" style="display:none"><input id="slCsH" class="lp" inputmode="numeric" placeholder="H" style="width:40px">-<input id="slCsA" class="lp" inputmode="numeric" placeholder="A" style="width:40px"></span>
+      <span id="slPlWrap" style="display:none"><select id="slPl"></select></span>
       <select id="slSettle"><option value="90">90 min</option><option value="et">incl. ET</option></select>
       <button class="mini" id="slAdd" style="width:auto">+ add leg</button>
     </div></div>`;
@@ -2762,14 +2838,23 @@ function wireSlip(){
   document.querySelectorAll('.slip-x').forEach(b=>b.addEventListener('click',()=>{ const s=slipById(b.dataset.p); if(s){ s.legs.splice(+b.dataset.i,1); saveSlips(); renderTracker(); } }));
   const tsel=document.getElementById('slTarget'); if(tsel)tsel.addEventListener('change',e=>{ slipTarget=e.target.value; });
   const add=document.getElementById('slAdd'); if(!add)return;
-  const kind=document.getElementById('slKind'), csw=document.getElementById('slCsWrap');
-  if(kind)kind.addEventListener('change',()=>{ csw.style.display=kind.value==='cs'?'inline':'none'; });
+  const kind=document.getElementById('slKind'), csw=document.getElementById('slCsWrap'), plw=document.getElementById('slPlWrap');
+  const isPl=v=>v==='pag'||v==='psa'||v==='p2sa';
+  function populateSlipPlayers(){ const sel=document.getElementById('slPl'); if(!sel)return;
+    const hc=document.getElementById('slHc').value, ac=document.getElementById('slAc').value; let opts='';
+    playerRatesFor(hc).forEach(r=>{ opts+=`<option value="h|${r.name.replace(/"/g,'&quot;')}">${hc} \u00b7 ${r.name}</option>`; });
+    playerRatesFor(ac).forEach(r=>{ opts+=`<option value="a|${r.name.replace(/"/g,'&quot;')}">${ac} \u00b7 ${r.name}</option>`; });
+    sel.innerHTML=opts||'<option value="">no squad data \u2014 paste one in Props</option>'; }
+  window.populateSlipPlayers=populateSlipPlayers;
+  if(kind)kind.addEventListener('change',()=>{ csw.style.display=kind.value==='cs'?'inline':'none'; plw.style.display=isPl(kind.value)?'inline':'none'; if(isPl(kind.value))populateSlipPlayers(); });
+  ['slHc','slAc'].forEach(id=>{ const el=document.getElementById(id); if(el)el.addEventListener('change',()=>{ if(isPl(kind.value))populateSlipPlayers(); }); });
   add.addEventListener('click',()=>{
     const tgt=document.getElementById('slTarget').value; slipTarget=tgt; const s=slipById(tgt); if(!s)return;
     const hc=document.getElementById('slHc').value, ac=document.getElementById('slAc').value, k=kind.value, settle=document.getElementById('slSettle').value;
     if(hc===ac)return;
     const leg={hc,ac,k,settle};
     if(k==='cs'){ leg.h=parseInt(document.getElementById('slCsH').value,10)||0; leg.a=parseInt(document.getElementById('slCsA').value,10)||0; }
+    if(isPl(k)){ const pv=(document.getElementById('slPl')||{}).value||''; const sp=pv.split('|'); if(sp.length<2||!sp[1])return; leg.side=sp[0]; leg.pl=sp[1]; }
     if(k==='over'||k==='under')leg.line=2.5;
     s.legs.push(leg); saveSlips(); renderTracker();
   });
@@ -3143,6 +3228,7 @@ function parseSummary(j){
   }catch(e){}
   const reds={h:0,a:0}, redMin={h:null,a:null};
   const reg={h:0,a:0};                    // goals scored at <=90' (regulation + normal stoppage)
+  const gev=[];                           // goal events with attribution: {side,per,min,scorer,assist}
   let sawET=false, sawPens=false;
   const evs = Array.isArray(j.keyEvents)?j.keyEvents : (Array.isArray(j.commentary)?j.commentary : []);
   evs.forEach(e=>{ try{
@@ -3152,13 +3238,26 @@ function parseSummary(j){
       if(side==='h'||side==='a'){ reds[side]++; const cv=e.clock&&(e.clock.displayValue||e.clock.value); if(cv&&redMin[side]==null)redMin[side]=(''+cv).trim(); }
       return;
     }
-    if(/^goal$/i.test(typeTxt)){                                                   // real goals only, not "goal disallowed"/"goal kick"
+    const _isGoal=/^goal$/i.test(typeTxt), _isPen=/^penalty\s*[-\u2013]\s*scored$/i.test(typeTxt);   // pens count for scorer markets; own goals ('Own Goal' type) intentionally excluded
+    if(_isGoal||_isPen){
       const per=e.period&&(e.period.number!=null?e.period.number:e.period);
       const pn=parseInt(per,10);
-      if(!isNaN(pn)&&pn>=3) sawET=true;                                            // ESPN soccer periods: 1-2 regulation, 3-4 extra time
-      if(/shoot[-\s]?out|penalt(y|ies)\s*shoot/i.test(typeTxt+' '+((e.text||''))))sawPens=true;
-      if((isNaN(pn)||pn<3)){ let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
-        if(side==='h'||side==='a') reg[side]++; }
+      if(_isGoal&&!isNaN(pn)&&pn>=3) sawET=true;                                   // ESPN soccer periods: 1-2 regulation, 3-4 extra time
+      if(_isGoal&&/shoot[-\s]?out|penalt(y|ies)\s*shoot/i.test(typeTxt+' '+((e.text||''))))sawPens=true;
+      let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
+      if(_isGoal&&(isNaN(pn)||pn<3)){ if(side==='h'||side==='a') reg[side]++; }
+      // attribution for player-prop legs (skip shootout: period >=5)
+      if((side==='h'||side==='a')&&!(pn>=5)){
+        let scorer='',assist='';
+        try{ const parts=Array.isArray(e.participants)?e.participants:[];
+          parts.forEach(pp=>{ const nm=pp&&pp.athlete&&(pp.athlete.displayName||pp.athlete.shortName); if(!nm)return;
+            const role=((pp.type&&(pp.type.text||pp.type))||pp.role||'').toString().toLowerCase();
+            if(/assist/.test(role)){ if(!assist)assist=nm; } else if(!scorer)scorer=nm; else if(!assist)assist=nm; });
+        }catch(_){}
+        if(!scorer&&typeof e.text==='string'){ const sm=e.text.match(/(?:Goal!?[^.]*\.\s*)([A-Za-z\u00c0-\u024f'\u2019. -]+?)\s*\(/); if(sm)scorer=sm[1].trim(); }
+        if(!assist&&typeof e.text==='string'){ const am=e.text.match(/Assisted by\s+([A-Za-z\u00c0-\u024f'\u2019. -]+?)(?:\s+(?:with|following|after)\b|[.,]|$)/); if(am)assist=am[1].trim(); }
+        if(scorer||assist) gev.push({side:side, per:isNaN(pn)?1:pn, min:((e.clock&&(e.clock.displayValue||e.clock.value))||'').toString(), scorer:scorer, assist:assist});
+      }
     }
     if(/shoot[-\s]?out/i.test(typeTxt)) sawPens=true;
   }catch(_){}});
@@ -3177,13 +3276,17 @@ function parseSummary(j){
   const hasStats=(stats.h&&Object.values(stats.h).some(v=>v!=null))||(stats.a&&Object.values(stats.a).some(v=>v!=null));
   const hasReg=(reg.h>0||reg.a>0);
   if(!hasStats&&!hasReg&&reds.h===0&&reds.a===0&&!Object.keys(idToSide).length)return null;
-  return {reds,redMin,stats,reg,wentToET:sawET,wentToPens:sawPens};
+  return {reds,redMin,stats,reg,gev,wentToET:sawET,wentToPens:sawPens};
 }
 async function enrichLiveGames(){
   if(typeof fetch!=='function')return;
   const live=(LIVE.games||[]).filter(g=>g.state==='in'&&g.id);
-  if(!live.length)return; let changed=false;
-  await Promise.all(live.map(async g=>{
+  // finished games still needed for player-leg settlement (fetched once)
+  const wantPost=(function(){ const pairs={}; try{ (SLIPS||[]).forEach(s=>(s.legs||[]).forEach(l=>{ if(l.k==='pag'||l.k==='psa'||l.k==='p2sa') pairs[[l.hc,l.ac].sort().join('|')]=1; })); }catch(_){}
+    return (LIVE.games||[]).filter(g=>g.state==='post'&&g.id&&!g.gevDone&&pairs[[g.hc,g.ac].sort().join('|')]); })();
+  const targets=live.concat(wantPost);
+  if(!targets.length)return; let changed=false;
+  await Promise.all(targets.map(async g=>{
     try{ const r=await fetch(SUMMARY_URL(g.id),{cache:'no-store'}); if(!r.ok)return;
       const p=parseSummary(await r.json());
       if(p){
@@ -3193,6 +3296,12 @@ async function enrichLiveGames(){
         g._redsRaw=raw;
         g.redsPending={h:Math.max(0,raw.h-conf.h), a:Math.max(0,raw.a-conf.a)};
         g.reds=conf; g.redMin=p.redMin; g.stats=p.stats; changed=true;
+        // goal events: confirm on two consecutive polls while live (VAR-safe); final data at FT is taken as-is
+        const rawG=(p.gev||[]).map(ev=>({side:ev.side,per:ev.per,min:ev.min,scorer:ev.scorer,assist:ev.assist,key:ev.side+'|'+normPl(ev.scorer)+'|'+ev.min+'|'+ev.per}));
+        const prevK=g._gevKeys||[];
+        g.gev=(g.state==='post')?rawG:rawG.filter(ev=>prevK.indexOf(ev.key)>=0);
+        g._gevKeys=rawG.map(ev=>ev.key);
+        if(g.state==='post')g.gevDone=true;
       }
     }catch(e){}
   }));
