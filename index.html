@@ -2437,7 +2437,11 @@ async function fetchKOStats(games){
   await Promise.all(done.map(async g=>{
     try{ const r=await fetch(SUMMARY_URL(g.id),{cache:'no-store'}); if(!r.ok)return;
       const p=parseSummary(await r.json());
-      if(p && p.stats && (p.stats.h||p.stats.a)){ KO_STATS[g.id]={h:p.stats.h,a:p.stats.a}; got=true; }
+      if(p && ((p.stats && (p.stats.h||p.stats.a)) || p.reg)){
+        KO_STATS[g.id]={h:p.stats&&p.stats.h, a:p.stats&&p.stats.a,
+          reg:p.reg, wentToET:!!p.wentToET, wentToPens:!!p.wentToPens};
+        got=true;
+      }
     }catch(e){}
   }));
   if(got) saveKOStats();
@@ -3030,6 +3034,14 @@ function applyLiveResults(results){
   if(refillUpcomingTies(results) && typeof rerenderActive==='function') rerenderActive();
   return applied;
 }
+function koTag(gameId, hAbbr, aAbbr){
+  const rec = gameId!=null ? KO_STATS[gameId] : null;
+  if(!rec || !rec.reg) return '';
+  const rh=rec.reg.h, ra=rec.reg.a;
+  if(rec.wentToPens) return ' · '+rh+'-'+ra+' after 90\' \u2192 penalties';
+  if(rec.wentToET)   return ' · '+rh+'-'+ra+' after 90\' \u2192 won in extra time';
+  return '';
+}
 const LIVE={state:'idle',updated:null,n:0};
 function liveBadgeHTML(){ const s=LIVE.state;
   if(s==='loading')return '<span style="color:var(--mut)">◌ syncing live results…</span>';
@@ -3059,7 +3071,7 @@ async function syncLive(){
       if(st.state==='post'&&st.completed){ const hw=H.winner===true, aw=A.winner===true;
         if(hw!==aw){ g.winnerName=hw?hName:aName;
           if(hc&&ac&&hc!==ac){ results[hc<ac?hc+'|'+ac:ac+'|'+hc]=hw?hc:ac;
-            if(ms>=latestT){ latestT=ms; latest={home:hName,away:aName,hs:H.score,as:A.score,winName:hw?hName:aName}; } } } }
+            if(ms>=latestT){ latestT=ms; latest={home:hName,away:aName,hs:H.score,as:A.score,winName:hw?hName:aName,id:ev.id}; } } } }
       else if(st.state==='in'){ LIVE.anyLive=true; stripLive.push({home:hName,away:aName,hs:H.score,as:A.score,clk:clk||'LIVE'}); }
       games.push(g);
     });
@@ -3075,7 +3087,7 @@ async function syncLive(){
     LIVE.state='ok'; LIVE.updated=new Date(); LIVE.n=Object.keys(results).length; LIVE.live=stripLive.length;
     const el=document.getElementById('liveStrip');
     if(el){ if(stripLive.length){ el.innerHTML=stripLive.slice(0,3).map(function(g){return '<span class="dot"></span><span class="tag">LIVE</span> <span>'+g.home+' <b class="num">'+g.hs+'</b>–<b class="num">'+g.as+'</b> '+g.away+' <span style="color:var(--mut2)"> · '+g.clk+'</span></span>';}).join('<span style="margin:0 8px;color:var(--mut2)">•</span>'); }
-      else if(latest){ el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+latest.home+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+latest.away+' <span style="color:var(--mut2)"> · '+latest.winName+' advance · latest result</span></span>'; } }
+      else if(latest){ el.innerHTML='<span class="dot" style="background:var(--mut)"></span><span class="tag">FT</span> <span>'+latest.home+' <b class="num">'+latest.hs+'</b>–<b class="num">'+latest.as+'</b> '+latest.away+' <span style="color:var(--mut2)"> · '+latest.winName+' advance · latest result'+koTag(latest.id)+'</span></span>'; } }
     const at=curTab;
     if(at==='scoreboard') renderScoreboard();
     else if(at==='tracker') renderTracker();
@@ -3093,12 +3105,25 @@ function parseSummary(j){
     ((comp&&comp.competitors)||[]).forEach(c=>{ if(c&&c.team&&c.team.id!=null&&c.homeAway) idToSide[String(c.team.id)]=c.homeAway==='home'?'h':'a'; });
   }catch(e){}
   const reds={h:0,a:0}, redMin={h:null,a:null};
+  const reg={h:0,a:0};                    // goals scored at <=90' (regulation + normal stoppage)
+  let sawET=false, sawPens=false;
   const evs = Array.isArray(j.keyEvents)?j.keyEvents : (Array.isArray(j.commentary)?j.commentary : []);
   evs.forEach(e=>{ try{
     const typeTxt=((e.type&&(e.type.text||e.type.name))||'').toString();           // event TYPE only — never free-text commentary
-    if(!/red\s*card|second\s*yellow|sending[-\s]?off/i.test(typeTxt))return;        // real dismissals only ("Red Card"/"Yellow-Red Card"); blocks narration like "credited"/"reduced"/"occurred"
-    let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
-    if(side==='h'||side==='a'){ reds[side]++; const cv=e.clock&&(e.clock.displayValue||e.clock.value); if(cv&&redMin[side]==null)redMin[side]=(''+cv).trim(); }
+    if(/red\s*card|second\s*yellow|sending[-\s]?off/i.test(typeTxt)){             // real dismissals only ("Red Card"/"Yellow-Red Card"); blocks narration like "credited"/"reduced"/"occurred"
+      let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
+      if(side==='h'||side==='a'){ reds[side]++; const cv=e.clock&&(e.clock.displayValue||e.clock.value); if(cv&&redMin[side]==null)redMin[side]=(''+cv).trim(); }
+      return;
+    }
+    if(/^goal$/i.test(typeTxt)){                                                   // real goals only, not "goal disallowed"/"goal kick"
+      const per=e.period&&(e.period.number!=null?e.period.number:e.period);
+      const pn=parseInt(per,10);
+      if(!isNaN(pn)&&pn>=3) sawET=true;                                            // ESPN soccer periods: 1-2 regulation, 3-4 extra time
+      if(/shoot[-\s]?out|penalt(y|ies)\s*shoot/i.test(typeTxt+' '+((e.text||''))))sawPens=true;
+      if((isNaN(pn)||pn<3)){ let side=null; if(e.team&&e.team.id!=null)side=idToSide[String(e.team.id)];
+        if(side==='h'||side==='a') reg[side]++; }
+    }
+    if(/shoot[-\s]?out/i.test(typeTxt)) sawPens=true;
   }catch(_){}});
   const stats={h:null,a:null};
   try{ const teams=j.boxscore&&j.boxscore.teams;
@@ -3113,8 +3138,9 @@ function parseSummary(j){
     });
   }catch(e){}
   const hasStats=(stats.h&&Object.values(stats.h).some(v=>v!=null))||(stats.a&&Object.values(stats.a).some(v=>v!=null));
-  if(!hasStats&&reds.h===0&&reds.a===0&&!Object.keys(idToSide).length)return null;
-  return {reds,redMin,stats};
+  const hasReg=(reg.h>0||reg.a>0);
+  if(!hasStats&&!hasReg&&reds.h===0&&reds.a===0&&!Object.keys(idToSide).length)return null;
+  return {reds,redMin,stats,reg,wentToET:sawET,wentToPens:sawPens};
 }
 async function enrichLiveGames(){
   if(typeof fetch!=='function')return;
