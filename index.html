@@ -2697,6 +2697,7 @@ function gameStateFor(hc,ac){
 }
 /* ---------- player-prop legs in the tracker: rates, matching, live probability ---------- */
 const PL_KINDS={pag:'anytime goal',psa:'score or assist',p2sa:'2+ score or assist'};
+const GEV_MEM={};   // per-game confirmation memory — survives scoreboard rebuilds and any object replacement
 function plNeed(leg){ return leg.k==='p2sa'?2:Math.max(1,parseInt(leg.n,10)||1); }
 function plDesc(leg){ const n=plNeed(leg); return leg.k==='pag'?'anytime goal':(n>1?n+'+ score or assist':'score or assist'); }
 function normPl(s){ try{ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim(); }catch(_){ return (s||'').toString().toLowerCase().trim(); } }
@@ -2818,7 +2819,7 @@ function slipPanel(){
   });
   const parlayOpts=SLIPS.map(s=>`<option value="${s.id}" ${s.id===slipTarget?'selected':''}>${(s.name||'').replace(/"/g,'&quot;')}</option>`).join('');
   return `<div class="panel"><h2>My slips \u2014 live leg tracker</h2>
-    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device.</p>
+    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device. <span style="opacity:.45">rev 5</span></p>
     ${cards}
     <div class="leg" style="border:none;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       <button class="mini" id="slNew" style="width:auto">+ new parlay</button>
@@ -3300,9 +3301,14 @@ async function enrichLiveGames(){
         g.reds=conf; g.redMin=p.redMin; g.stats=p.stats; changed=true;
         // goal events: confirm on two consecutive polls while live (VAR-safe); final data at FT is taken as-is
         const rawG=(p.gev||[]).map(ev=>({side:ev.side,per:ev.per,min:ev.min,scorer:ev.scorer,assist:ev.assist,key:ev.side+'|'+normPl(ev.scorer)+'|'+ev.min+'|'+ev.per}));
-        const prevK=g._gevKeys||[];
-        g.gev=(g.state==='post')?rawG:rawG.filter(ev=>prevK.indexOf(ev.key)>=0);
-        g._gevKeys=rawG.map(ev=>ev.key);
+        const mem=GEV_MEM[g.id]=GEV_MEM[g.id]||{keys:[]};
+        const prevK=(g._gevKeys||[]).concat(mem.keys);
+        // a goal event confirms if (a) seen on a prior poll, or (b) the scoreboard itself corroborates it:
+        // that side's raw event count <= its live score. A VAR-chalked goal loses (b) when the score reverts.
+        const nSide={h:rawG.filter(e=>e.side==='h').length, a:rawG.filter(e=>e.side==='a').length};
+        const sc={h:parseInt(g.hs,10)||0, a:parseInt(g.as,10)||0};
+        g.gev=(g.state==='post')?rawG:rawG.filter(ev=> prevK.indexOf(ev.key)>=0 || nSide[ev.side]<=sc[ev.side] );
+        g._gevKeys=rawG.map(ev=>ev.key); mem.keys=g._gevKeys;
         if(g.state==='post')g.gevDone=true;
       }
     }catch(e){}
