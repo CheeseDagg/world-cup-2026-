@@ -2697,6 +2697,8 @@ function gameStateFor(hc,ac){
 }
 /* ---------- player-prop legs in the tracker: rates, matching, live probability ---------- */
 const PL_KINDS={pag:'anytime goal',psa:'score or assist',p2sa:'2+ score or assist'};
+function plNeed(leg){ return leg.k==='p2sa'?2:Math.max(1,parseInt(leg.n,10)||1); }
+function plDesc(leg){ const n=plNeed(leg); return leg.k==='pag'?'anytime goal':(n>1?n+'+ score or assist':'score or assist'); }
 function normPl(s){ try{ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim(); }catch(_){ return (s||'').toString().toLowerCase().trim(); } }
 function plMatch(squadName,feedName){ const a=normPl(squadName), b=normPl(feedName); if(!a||!b)return false;
   if(b.indexOf(a)>=0||a.indexOf(b)>=0)return true;
@@ -2726,7 +2728,7 @@ function playerLegProb(leg,st,made){
   const rates=playerRatesFor(leg.side==='h'?leg.hc:leg.ac);
   const r=rates.find(x=>plMatch(x.name,leg.pl)); if(!r)return null;
   const shareRate=(leg.k==='pag')? r.sh : (r.sh+ASSISTED_RATE*r.ash);
-  const need0=(leg.k==='p2sa')?2:1;
+  const need0=plNeed(leg);
   const need=Math.max(0,need0-(made||0));
   if(need===0)return 1;
   const hs=st?st.hs:0, as=st?st.as:0, min=st?st.min:0, rh=st?st.rh:0, ra=st?st.ra:0;
@@ -2734,7 +2736,7 @@ function playerLegProb(leg,st,made){
   let lar=mm.la*frac, lbr=mm.lb*frac; { const a=redAdj(lar,lbr,rh,ra); lar=a[0]; lbr=a[1]; }
   const teamRem=(leg.side==='h')?lar:lbr;
   const lamR=teamRem*shareRate;
-  const pge=(lam,n)=> n<=0?1 : n===1? 1-Math.exp(-lam) : 1-Math.exp(-lam)*(1+lam);
+  const pge=(lam,n)=>{ if(n<=0)return 1; let c=0,t=Math.exp(-lam); for(let i=0;i<n;i++){ c+=t; t*=lam/(i+1); } return Math.max(0,1-c); };
   if(leg.settle!=='et')return pge(lamR,need);
   // ET only exists if level at 90: mixture weighted by P(draw at 90 | state), ET window = 30' at 0.8x pace
   const F=liveGrid(leg.hc,leg.ac,hs,as,min,rh,ra).F;
@@ -2758,7 +2760,7 @@ function slipLegRows(legs,pid){
         const made=playerMade(fg.g,leg,feedSide);
         if(st.state==='in'){ live=playerLegProb(leg,st,made); anyLive=true; tag=`live ${st.hs}-${st.as} \u00b7 ${st.min}'${made?` \u00b7 ${made} so far`:''}`; cls=made? 'pos':'mut'; if(live>pre)cls='pos'; }
         else if(st.state==='post'){
-          const need0=(leg.k==='p2sa')?2:1; const teamFT=(leg.side==='h')?st.hs:st.as;
+          const need0=plNeed(leg); const teamFT=(leg.side==='h')?st.hs:st.as;
           if(teamFT<need0){ live=0; tag=`FT ${st.hs}-${st.as} \u00b7 \u2717 miss`; cls='neg'; }   // team can't have fewer involvements available than goals scored
           else if(fg.g.gevDone||((fg.g.gev||[]).length)){ const hit=made>=need0; live=hit?1:0; tag=`FT ${st.hs}-${st.as} \u00b7 ${hit?'\u2713 hit':'\u2717 miss'}`; cls=hit?'pos':'neg'; }
           else { skip=true; tag=`FT ${st.hs}-${st.as} \u00b7 verifying scorers\u2026`; cls='mut'; }
@@ -2768,7 +2770,7 @@ function slipLegRows(legs,pid){
       const teamNm=(leg.side==='h'?th:ta).name;
       const dp=(live-pre)*100, arrow=(skip||Math.abs(dp)<0.5)?'':(dp>0?`<span style="color:var(--pos)">\u25b2${dp.toFixed(0)}</span>`:`<span style="color:var(--neg)">\u25bc${Math.abs(dp).toFixed(0)}</span>`);
       rows+=`<div class="strow" style="align-items:center;gap:8px">
-      <span style="flex:1"><b>${leg.pl}</b> <span class="note" style="width:auto">${teamNm} \u00b7 ${PL_KINDS[leg.k]}${leg.settle==='et'?' \u00b7 ET':''}</span><br>
+      <span style="flex:1"><b>${leg.pl}</b> <span class="note" style="width:auto">${teamNm} \u00b7 ${plDesc(leg)}${leg.settle==='et'?' \u00b7 ET':''}</span><br>
       <span class="note" style="width:auto;color:var(--${cls})">${tag}</span></span>
       <span style="text-align:right;min-width:96px"><b style="font-size:15px">${skip?'\u2014':(live*100).toFixed(live>0&&live<1?1:0)+'%'}</b> ${arrow}<br>
       <span class="note" style="width:auto">was ${(pre*100).toFixed(0)}%</span></span>
@@ -2800,7 +2802,7 @@ function slipLegRows(legs,pid){
 }
 function slipPanel(){
   const teamOpts=sel=>Object.keys(T).sort((a,b)=>T[a].name.localeCompare(T[b].name)).map(k=>`<option value="${k}" ${sel===k?'selected':''}>${T[k].name}</option>`).join('');
-  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score\u2026'],['pag','Player: anytime goal'],['psa','Player: score or assist'],['p2sa','Player: 2+ score or assist']];
+  const legKinds=[['hband','Home win 1-0/2-0/3-0'],['aband','Away win 1-0/2-0/3-0'],['hcon1','Home win 2-1/3-1/4-1'],['acon1','Away win 2-1/3-1/4-1'],['draw','Draw'],['hwin','Home to win'],['awin','Away to win'],['btts','Both teams score'],['nbtts','Clean sheet (a team)'],['cs','Correct score\u2026'],['pag','Player: anytime goal'],['psa','Player: score or assist (N+)']];
   if(!slipTarget||!slipById(slipTarget)) slipTarget=(SLIPS[0]&&SLIPS[0].id)||null;
   let cards='';
   SLIPS.forEach(sl=>{
@@ -2826,7 +2828,7 @@ function slipPanel(){
       <select id="slHc">${teamOpts('BRA')}</select><span class="note" style="width:auto">v</span><select id="slAc">${teamOpts('NOR')}</select>
       <select id="slKind">${legKinds.map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')}</select>
       <span id="slCsWrap" style="display:none"><input id="slCsH" class="lp" inputmode="numeric" placeholder="H" style="width:40px">-<input id="slCsA" class="lp" inputmode="numeric" placeholder="A" style="width:40px"></span>
-      <span id="slPlWrap" style="display:none"><select id="slPl"></select></span>
+      <span id="slPlWrap" style="display:none"><select id="slPl"></select><input id="slPlN" class="lp" inputmode="numeric" value="1" title="needed involvements (1 = anytime, 2 = 2+, \u2026)" style="width:36px;display:none">\u200b</span>
       <select id="slSettle"><option value="90">90 min</option><option value="et">incl. ET</option></select>
       <button class="mini" id="slAdd" style="width:auto">+ add leg</button>
     </div></div>`;
@@ -2846,7 +2848,7 @@ function wireSlip(){
     playerRatesFor(ac).forEach(r=>{ opts+=`<option value="a|${r.name.replace(/"/g,'&quot;')}">${ac} \u00b7 ${r.name}</option>`; });
     sel.innerHTML=opts||'<option value="">no squad data \u2014 paste one in Props</option>'; }
   window.populateSlipPlayers=populateSlipPlayers;
-  if(kind)kind.addEventListener('change',()=>{ csw.style.display=kind.value==='cs'?'inline':'none'; plw.style.display=isPl(kind.value)?'inline':'none'; if(isPl(kind.value))populateSlipPlayers(); });
+  if(kind)kind.addEventListener('change',()=>{ csw.style.display=kind.value==='cs'?'inline':'none'; plw.style.display=isPl(kind.value)?'inline':'none'; const ni=document.getElementById('slPlN'); if(ni)ni.style.display=kind.value==='psa'?'inline':'none'; if(isPl(kind.value))populateSlipPlayers(); });
   ['slHc','slAc'].forEach(id=>{ const el=document.getElementById(id); if(el)el.addEventListener('change',()=>{ if(isPl(kind.value))populateSlipPlayers(); }); });
   add.addEventListener('click',()=>{
     const tgt=document.getElementById('slTarget').value; slipTarget=tgt; const s=slipById(tgt); if(!s)return;
@@ -2854,7 +2856,7 @@ function wireSlip(){
     if(hc===ac)return;
     const leg={hc,ac,k,settle};
     if(k==='cs'){ leg.h=parseInt(document.getElementById('slCsH').value,10)||0; leg.a=parseInt(document.getElementById('slCsA').value,10)||0; }
-    if(isPl(k)){ const pv=(document.getElementById('slPl')||{}).value||''; const sp=pv.split('|'); if(sp.length<2||!sp[1])return; leg.side=sp[0]; leg.pl=sp[1]; }
+    if(isPl(k)){ const pv=(document.getElementById('slPl')||{}).value||''; const sp=pv.split('|'); if(sp.length<2||!sp[1])return; leg.side=sp[0]; leg.pl=sp[1]; if(k==='psa')leg.n=Math.max(1,parseInt((document.getElementById('slPlN')||{}).value,10)||1); }
     if(k==='over'||k==='under')leg.line=2.5;
     s.legs.push(leg); saveSlips(); renderTracker();
   });
