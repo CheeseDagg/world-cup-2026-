@@ -2724,12 +2724,26 @@ function playerMade(g,leg,feedSide){ let n=0; ((g&&g.gev)||[]).forEach(ev=>{ if(
     if(plMatch(leg.pl,ev.scorer))n++;                              // goal
     else if(leg.k!=='pag'&&plMatch(leg.pl,ev.assist))n++;          // assist counts for S/A legs only
   }); return n; }
-// P(leg still lands | state). st null = pre-match. made = involvements already credited.
-function playerLegProb(leg,st,made){
-  const mm=modelMatch(leg.hc,leg.ac);
+function amToProb(o){ const v=parseFloat(o); if(!isFinite(v)||v===0)return null; return v>0? 100/(v+100) : (-v)/((-v)+100); }
+const PL_DEVIG=0.97;                        // light haircut: a one-sided price still carries the two-way hold
+function plSquadShare(leg){                 // fallback: per-goal involvement share from the built-in squad data
   const rates=playerRatesFor(leg.side==='h'?leg.hc:leg.ac);
   const r=rates.find(x=>plMatch(x.name,leg.pl)); if(!r)return null;
-  const shareRate=(leg.k==='pag')? r.sh : (r.sh+ASSISTED_RATE*r.ash);
+  return (leg.k==='pag')? r.sh : (r.sh+ASSISTED_RATE*r.ash);
+}
+function plBookShare(leg){                  // solve the per-goal share that reproduces the book's own price
+  const p=amToProb(leg.odds); if(p==null)return null;
+  const tgt=Math.max(0.002,Math.min(0.985,p*PL_DEVIG));
+  let lo=0.0005,hi=0.995;
+  for(let i=0;i<44;i++){ const mid=(lo+hi)/2; const v=plProbWithShare(leg,mid,null,0);
+    if(v==null)return null; (v<tgt)?lo=mid:hi=mid; }
+  return (lo+hi)/2;
+}
+function plEffShare(leg){ const b=plBookShare(leg); return (b!=null)?b:plSquadShare(leg); }
+// P(leg still lands | state). st null = pre-match. made = involvements already credited.
+function playerLegProb(leg,st,made){ const s=plEffShare(leg); if(s==null)return null; return plProbWithShare(leg,s,st,made); }
+function plProbWithShare(leg,shareRate,st,made){
+  const mm=modelMatch(leg.hc,leg.ac); if(!mm||shareRate==null)return null;
   const need0=plNeed(leg);
   const need=Math.max(0,need0-(made||0));
   if(need===0)return 1;
@@ -2748,10 +2762,8 @@ function playerLegProb(leg,st,made){
   return (1-pD)*pge(lamR,need)+pD*pge(lamR+lamE,need);
 }
 /* ---------- correlated parlay joint: player legs conditioned on a same-game correct-score leg ---------- */
-function plShare(leg){                       // player's expected involvements per team goal
-  const rates=playerRatesFor(leg.side==='h'?leg.hc:leg.ac);
-  const r=rates.find(x=>plMatch(x.name,leg.pl)); if(!r)return null;
-  return Math.min(0.98, leg.k==='pag' ? r.sh : (r.sh+ASSISTED_RATE*r.ash));
+function plShare(leg){                       // per-goal involvement share (book-anchored when odds are given)
+  const s=plEffShare(leg); return (s==null)?null:Math.min(0.98,s);
 }
 function binomGE(n,g,p){                     // P(X>=n), X~Bin(g,p)
   if(n<=0)return 1; if(g<n)return 0;
@@ -2826,7 +2838,7 @@ function slipLegRows(legs,pid){
       const teamNm=(leg.side==='h'?th:ta).name;
       const dp=(live-pre)*100, arrow=(skip||Math.abs(dp)<0.5)?'':(dp>0?`<span style="color:var(--pos)">\u25b2${dp.toFixed(0)}</span>`:`<span style="color:var(--neg)">\u25bc${Math.abs(dp).toFixed(0)}</span>`);
       rows+=`<div class="strow" style="align-items:center;gap:8px">
-      <span style="flex:1"><b>${leg.pl}</b> <span class="note" style="width:auto">${teamNm} \u00b7 ${plDesc(leg)}${leg.settle==='et'?' \u00b7 ET':''}</span><br>
+      <span style="flex:1"><b>${leg.pl}</b> <span class="note" style="width:auto">${teamNm} \u00b7 ${plDesc(leg)}${leg.settle==='et'?' \u00b7 ET':''}${leg.odds?' \u00b7 @'+leg.odds:''}</span><br>
       <span class="note" style="width:auto;color:var(--${cls})">${tag}</span></span>
       <span style="text-align:right;min-width:96px"><b style="font-size:15px">${skip?'\u2014':(live*100).toFixed(live>0&&live<1?1:0)+'%'}</b> ${arrow}<br>
       <span class="note" style="width:auto">was ${(pre*100).toFixed(0)}%</span></span>
@@ -2876,7 +2888,7 @@ function slipPanel(){
   });
   const parlayOpts=SLIPS.map(s=>`<option value="${s.id}" ${s.id===slipTarget?'selected':''}>${(s.name||'').replace(/"/g,'&quot;')}</option>`).join('');
   return `<div class="panel"><h2>My slips \u2014 live leg tracker</h2>
-    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device. <span style="opacity:.45">rev 6</span></p>
+    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device. <span style="opacity:.45">rev 7</span></p>
     ${cards}
     <div class="leg" style="border:none;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       <button class="mini" id="slNew" style="width:auto">+ new parlay</button>
@@ -2886,7 +2898,7 @@ function slipPanel(){
       <select id="slHc">${teamOpts('BRA')}</select><span class="note" style="width:auto">v</span><select id="slAc">${teamOpts('NOR')}</select>
       <select id="slKind">${legKinds.map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')}</select>
       <span id="slCsWrap" style="display:none"><input id="slCsH" class="lp" inputmode="numeric" placeholder="H" style="width:40px">-<input id="slCsA" class="lp" inputmode="numeric" placeholder="A" style="width:40px"></span>
-      <span id="slPlWrap" style="display:none"><select id="slPl"></select><input id="slPlN" class="lp" inputmode="numeric" value="1" title="needed involvements (1 = anytime, 2 = 2+, \u2026)" style="width:36px;display:none">\u200b</span>
+      <span id="slPlWrap" style="display:none"><select id="slPl"></select><input id="slPlN" class="lp" inputmode="numeric" value="1" title="needed involvements (1 = anytime, 2 = 2+, \u2026)" style="width:36px;display:none"><input id="slPlOdds" class="lp" placeholder="odds" title="book price for this leg (e.g. -105, +160) \u2014 anchors it to the market instead of squad data" style="width:56px">\u200b</span>
       <select id="slSettle"><option value="90">90 min</option><option value="et">incl. ET</option></select>
       <button class="mini" id="slAdd" style="width:auto">+ add leg</button>
     </div></div>`;
@@ -2914,7 +2926,7 @@ function wireSlip(){
     if(hc===ac)return;
     const leg={hc,ac,k,settle};
     if(k==='cs'){ leg.h=parseInt(document.getElementById('slCsH').value,10)||0; leg.a=parseInt(document.getElementById('slCsA').value,10)||0; }
-    if(isPl(k)){ const pv=(document.getElementById('slPl')||{}).value||''; const sp=pv.split('|'); if(sp.length<2||!sp[1])return; leg.side=sp[0]; leg.pl=sp[1]; if(k==='psa')leg.n=Math.max(1,parseInt((document.getElementById('slPlN')||{}).value,10)||1); }
+    if(isPl(k)){ const pv=(document.getElementById('slPl')||{}).value||''; const sp=pv.split('|'); if(sp.length<2||!sp[1])return; leg.side=sp[0]; leg.pl=sp[1]; if(k==='psa')leg.n=Math.max(1,parseInt((document.getElementById('slPlN')||{}).value,10)||1); const ov=((document.getElementById('slPlOdds')||{}).value||'').trim(); if(ov&&isFinite(parseFloat(ov)))leg.odds=ov; }
     if(k==='over'||k==='under')leg.line=2.5;
     s.legs.push(leg); saveSlips(); renderTracker();
   });
