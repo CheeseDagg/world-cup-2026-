@@ -2747,6 +2747,60 @@ function playerLegProb(leg,st,made){
   const lamE=((leg.side==='h')?mm.la:mm.lb)/3*0.8*shareRate;
   return (1-pD)*pge(lamR,need)+pD*pge(lamR+lamE,need);
 }
+/* ---------- correlated parlay joint: player legs conditioned on a same-game correct-score leg ---------- */
+function plShare(leg){                       // player's expected involvements per team goal
+  const rates=playerRatesFor(leg.side==='h'?leg.hc:leg.ac);
+  const r=rates.find(x=>plMatch(x.name,leg.pl)); if(!r)return null;
+  return Math.min(0.98, leg.k==='pag' ? r.sh : (r.sh+ASSISTED_RATE*r.ash));
+}
+function binomGE(n,g,p){                     // P(X>=n), X~Bin(g,p)
+  if(n<=0)return 1; if(g<n)return 0;
+  let cum=0;
+  for(let k=0;k<n;k++){ let c=1; for(let i=0;i<k;i++)c=c*(g-i)/(i+1); cum+=c*Math.pow(p,k)*Math.pow(1-p,g-k); }
+  return Math.max(0,Math.min(1,1-cum));
+}
+function teamLegP(leg,useLive){
+  const st=useLive?gameStateFor(leg.hc,leg.ac):null;
+  if(!st||st.state==='pre')return legProb(leg.hc,leg.ac,0,0,0,0,0,leg,leg.settle);
+  if(st.state==='in')return legProb(leg.hc,leg.ac,st.hs,st.as,st.min,st.rh,st.ra,leg,leg.settle);
+  return legProb(leg.hc,leg.ac,st.hs,st.as,90,st.rh,st.ra,leg,leg.settle)>0.5?1:0;
+}
+function plLegP(leg,useLive){
+  const st=useLive?gameStateFor(leg.hc,leg.ac):null, fg=liveGameFor(leg.hc,leg.ac);
+  if(!st||!fg||st.state==='pre')return playerLegProb(leg,null,0);
+  const fs=fg.flip?(leg.side==='h'?'a':'h'):leg.side, made=playerMade(fg.g,leg,fs);
+  if(st.state==='post'){ const n0=plNeed(leg), ft=(leg.side==='h')?st.hs:st.as;
+    if(ft<n0)return 0;
+    if(fg.g.gevDone||((fg.g.gev||[]).length))return made>=n0?1:0;
+    return playerLegProb(leg,st,made); }
+  return playerLegProb(leg,st,made);
+}
+// Joint chance for a whole parlay. Legs in DIFFERENT games stay independent (they are).
+// Within one game, player legs are conditioned on the correct-score leg: if the score says the
+// team scores exactly G, each player's involvements are binomial over those G goals.
+function parlayJoint(legs,useLive){
+  const grp={}; legs.forEach(l=>{ const k=l.hc+'|'+l.ac; (grp[k]=grp[k]||[]).push(l); });
+  let J=1;
+  Object.keys(grp).forEach(k=>{
+    const gl=grp[k], cs=gl.find(l=>l.k==='cs'), pls=gl.filter(l=>PL_KINDS[l.k]);
+    gl.filter(l=>l!==cs&&!PL_KINDS[l.k]).forEach(l=>{ J*=teamLegP(l,useLive); });
+    if(!cs){ pls.forEach(l=>{ const p=plLegP(l,useLive); if(p!=null)J*=p; }); return; }
+    J*=teamLegP(cs,useLive);
+    if(!pls.length)return;
+    const st=useLive?gameStateFor(cs.hc,cs.ac):null;
+    const hs=(st&&st.state!=='pre')?st.hs:0, as=(st&&st.state!=='pre')?st.as:0;
+    const fg=liveGameFor(cs.hc,cs.ac);
+    pls.forEach(l=>{
+      const sh=plShare(l); if(sh==null)return;
+      let made=0;
+      if(useLive&&fg&&st&&st.state!=='pre'){ const fs=fg.flip?(l.side==='h'?'a':'h'):l.side; made=playerMade(fg.g,l,fs); }
+      const total=(l.side==='h')?cs.h:cs.a;          // team's goals under the backed scoreline
+      const already=(l.side==='h')?hs:as;
+      J*=binomGE(plNeed(l)-made, Math.max(0,total-already), sh);
+    });
+  });
+  return J;
+}
 function slipLegRows(legs,pid){
   let rows='', jointLive=1, jointPre=1, anyLive=false, unver=false;
   legs.forEach((leg,idx)=>{
@@ -2809,7 +2863,9 @@ function slipPanel(){
   let cards='';
   SLIPS.forEach(sl=>{
     const r=slipLegRows(sl.legs,sl.id);
-    const joint = sl.legs.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>${sl.name} \u2014 all legs</b><br><span class="note" style="width:auto">${r.anyLive?'updating live':'pre-match'}${r.unver?' \u00b7 excludes 1+ leg verifying scorers':''}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(r.jointLive*100).toFixed(r.jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${r.jointLive>0?Math.round(1/r.jointLive).toLocaleString():'\u221e'} \u00b7 was 1-in-${r.jointPre>0?Math.round(1/r.jointPre).toLocaleString():'\u221e'}</span></span></div>`:'';
+    try{ const jl=parlayJoint(sl.legs,true), jp=parlayJoint(sl.legs,false);
+      if(isFinite(jl)&&isFinite(jp)){ r.jointLive=jl; r.jointPre=jp; r.corr=sl.legs.some(l=>l.k==='cs')&&sl.legs.some(l=>PL_KINDS[l.k]); } }catch(_){}
+    const joint = sl.legs.length? `<div class="strow" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><span style="flex:1"><b>${sl.name} \u2014 all legs</b><br><span class="note" style="width:auto">${r.anyLive?'updating live':'pre-match'}${r.corr?' \u00b7 correlated':''}${r.unver?' \u00b7 excludes 1+ leg verifying scorers':''}</span></span><span style="text-align:right"><b style="font-size:16px;color:var(--gold)">${(r.jointLive*100).toFixed(r.jointLive<0.01?3:2)}%</b><br><span class="note" style="width:auto">1-in-${r.jointLive>0?Math.round(1/r.jointLive).toLocaleString():'\u221e'} \u00b7 was 1-in-${r.jointPre>0?Math.round(1/r.jointPre).toLocaleString():'\u221e'}</span></span></div>`:'';
     cards+=`<div class="slipcard" data-pid="${sl.id}" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--card2)">
       <div class="strow" style="align-items:center;gap:8px;margin-bottom:2px">
         <input class="sl-name" data-p="${sl.id}" value="${(sl.name||'').replace(/"/g,'&quot;')}" style="flex:1;font-weight:700;font-size:14px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--ink);padding:2px 0">
@@ -2820,7 +2876,7 @@ function slipPanel(){
   });
   const parlayOpts=SLIPS.map(s=>`<option value="${s.id}" ${s.id===slipTarget?'selected':''}>${(s.name||'').replace(/"/g,'&quot;')}</option>`).join('');
   return `<div class="panel"><h2>My slips \u2014 live leg tracker</h2>
-    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device. <span style="opacity:.45">rev 5</span></p>
+    <p class="note">Track <b>multiple parlays</b> at once \u2014 each card shows its legs' <b>live probability of still landing</b> given the current score and clock, plus its own joint ticket chance. \u25b2\u25bc is the move since kickoff. Each parlay's joint is computed on <b>its own legs only</b>; separate tickets are never multiplied into one number (mutually-exclusive tickets can't all hit). Slips persist on this device. <span style="opacity:.45">rev 6</span></p>
     ${cards}
     <div class="leg" style="border:none;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center">
       <button class="mini" id="slNew" style="width:auto">+ new parlay</button>
